@@ -1,0 +1,665 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2014 Pier Carlo Chiodi - http://www.pierky.com
+# Licensed under The MIT License (MIT) - http://opensource.org/licenses/MIT
+
+import getopt
+import logging
+from logging.handlers import RotatingFileHandler
+from copy import deepcopy
+import fileinput
+import select
+import sys
+import os.path
+import json
+import datetime
+import urllib2
+
+APP_NAME		= 'pmacct-to-elasticsearch'
+CURRENT_RELEASE		= 'v0.1.0'
+
+CONF_DIR		= '/etc/p2es'
+
+EXITCODE_OK		= 0
+EXITCODE_OneOrMoreErrors= 1
+
+EXITCODE_Program	= 2
+EXITCODE_ElasticSearch	= 3
+
+DEF_CONFIG = {
+	'LogFile': '/var/log/%s-$PluginName.log' % APP_NAME, 
+
+	'ES_URL': 'http://localhost:9200',
+	'ES_IndexName': '',
+	'ES_Type': '',
+
+	'ES_FlushSize': 5000,
+
+	'InputFile': None,
+
+	'Transformations': []
+}
+
+CONFIG = DEF_CONFIG.copy()
+
+def ExpandMacro( In ):
+	if In is None:
+		return None
+
+	Out = deepcopy( In )
+
+	Out = Out.replace( '$PluginName', CONFIG.get( 'PluginName' ) or 'default' )
+	Out = Out.replace( '$IndexName', datetime.datetime.now().strftime( CONFIG.get( 'ES_IndexName' ) or 'default' ) )
+	Out = Out.replace( '$Type', CONFIG.get( 'ES_Type' ) or 'default' )
+	return Out
+
+# returns True or False
+def SetupLogging( BaseLogFile=None ):
+	if BaseLogFile:
+		LogFilePath = ExpandMacro( BaseLogFile )
+	else:
+		LogFilePath = None
+
+	logger = logging.getLogger(APP_NAME)
+
+	formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+
+	logger.setLevel(logging.INFO)
+
+	logger.handlers = []
+
+	if LogFilePath:
+		# Log to stdout also
+		if sys.stdout.isatty():
+			try:
+				hdlr = logging.StreamHandler( sys.stdout )
+				hdlr.setFormatter(formatter)
+				logger.addHandler(hdlr)
+			except:
+				pass
+
+		try:
+			hdlr = logging.handlers.RotatingFileHandler( LogFilePath, maxBytes=1000000, backupCount=3 )
+			hdlr.setFormatter(formatter)
+			logger.addHandler(hdlr)
+		except:
+			Log( logging.ERROR, 'Can\'t setup logging to file %s. Ensure it has write permissions for the current user.' % LogFilePath )
+			return False
+
+	else:
+		try:
+			hdlr = logging.StreamHandler( sys.stderr )
+			hdlr.setFormatter(formatter)
+			logger.addHandler(hdlr)
+		except:
+			sys.stderr.write( 'Can\'t setup logging to stderr.\n' )
+			return False
+
+	return True
+
+def Log( lev, msg, exc_info=False ):
+	logger = logging.getLogger(APP_NAME)
+	logger.log( lev, msg, exc_info=exc_info )
+
+def Usage():
+	print('')
+	print('%s %s' % ( APP_NAME, CURRENT_RELEASE ) )
+	print('by Pier Carlo Chiodi (aka Pierky)')
+	print('http://www.pierky.com/%s' % APP_NAME )
+	print('')
+	print('Usage: %s [ options ] <plugin_name>' % APP_NAME)
+	print('')
+	print('Options:')
+	print('  -p, --print:	only print output to stdout (does not send data to ElasticSearch)')
+	print('  -t, --test:	only tests configuration (does not send data to ElasticSearch)')
+	print('  -h, --help:	show this help')
+	print('')
+	print('Copyright (c) 2014 Pier Carlo Chiodi')
+	print('')
+
+def ExpandDataMacros( S, Dict ):
+	if S.find('$') >= 0:
+		Res = S
+
+		for K in Dict.keys():
+			Res = Res.replace( '$%s' % K, str( Dict[K] ) )
+		return Res
+	else:
+		return S
+
+# See TRANSFORMATIONS.md file for details
+def ParseConditions( C, D, OpField='__op__' ):
+	if isinstance( C, list ):
+		if len(C) > 0:
+			if isinstance( C[0], basestring ):
+				if C[0] == 'AND':
+					if len(C) > 2:
+						for subC in C[1:]:
+							if not ParseConditions( subC, D ):
+								return False
+						return True
+					else:
+						return False
+
+				elif C[0] == 'OR':
+					if len(C) > 2:
+						for subC in C[1:]:
+							if ParseConditions( subC, D ):
+								return True
+						return False
+					else:
+						return True
+
+				else:
+					raise Exception( 'Logical groups must begin with "AND" or "OR" ("%s" found)' % C[0] )
+			else:
+				# default to "AND" if not specified
+
+				for subC in C:
+					if not ParseConditions( subC, D ):
+						return False
+				return True
+
+		else:
+			raise Exception( 'Empty list' )
+
+	elif isinstance( C, dict ):
+		Op = '='
+		N = None
+		V = None
+
+		for K in C.keys():
+			if K == OpField:
+				Op = C[K]
+
+				if not Op in [ '=', '>', '>=', '<', '<=', '!=', 'in', 'notin' ]:
+					raise Exception( 'Unexpected operator: "%s"' % Op )
+			else:
+				if N is None:
+					N = K
+					V = C[K]
+				else:
+					raise Exception( 'Only one name/value pair allowed' )
+
+		if Op in [ 'in', 'notin' ] and not isinstance( V, list ):
+			raise Exception( 'The "%s" operator requires a list' % Op )
+
+		if not N is None:
+			if not N in D:
+				return False
+
+			if Op == '=':
+				return D[N] == V
+			elif Op == '>':
+				return D[N] > V
+			elif Op == '>=':
+				return D[N] >= V
+			elif Op == '<':
+				return D[N] < V
+			elif Op == '<=':
+				return D[N] <= V
+			elif Op == '!=':
+				return D[N] != V
+			elif Op == 'in':
+				return D[N] in V
+			elif Op == 'notin':
+				return not D[N] in V
+			else:
+				raise Exception( 'Operator not implemented: "%s"' % Op )
+
+		else:
+			raise Exception( 'Name/value pair expected' )
+	else:
+		raise Exception( 'Unexpected object type %s from %s' % ( type(C), str(C) ) )
+
+# returns True or False
+def TestTransformation( Transformation ):
+	Ret = True
+
+	try:
+		TransformationDetails = 'Transformations matrix (%s)' % str( Transformation )
+	except:
+		TransformationDetails = 'Transformations matrix'
+	
+	if not 'Conditions' in Transformation:
+		Log( logging.ERROR, '%s, "Conditions" is missing' % TransformationDetails )
+		Ret = False
+	else:
+		try:
+			ParseConditions( Transformation['Conditions'], {} )
+		except Exception as e:
+			Log( logging.ERROR, '%s, invalid "Conditions": %s' % ( TransformationDetails, str(e) ) )
+			Ret = False
+	
+	if not 'Actions' in Transformation:
+		Log( logging.ERROR, '%s, "Actions is missing' % TransformationDetails )
+		Ret = False
+	else:
+		for Action in Transformation['Actions']:
+			if not 'Type' in Action:
+				Log( logging.ERROR, '%s, "Type" is missing' % TransformationDetails )
+				Ret = False
+			else:
+				TransformationDetails = TransformationDetails + ', action type = %s' % Action['Type']
+
+				if not Action['Type'] in [ 'AddField', 'AddFieldLookup', 'DelField' ]:
+					Log( logging.ERROR, '%s, "Type" unknown' % TransformationDetails )
+					Ret = False
+				else:
+					if Action['Type'] in [ 'AddField', 'AddFieldLookup', 'DelField' ]:
+						if not 'Name' in Action:
+							Log( logging.ERROR, '%s, "Name" is missing' % TransformationDetails )
+							Ret = False
+
+					if Action['Type'] in [ 'AddField' ]:
+						if not 'Value' in Action:
+							Log( logging.ERROR, '%s, "Value" is missing for new field "%s"' % ( TransformationDetails, Action['Name'] ) )
+							Ret = False
+
+					if Action['Type'] in [ 'AddFieldLookup' ]:
+						if not 'LookupFieldName' in Action:
+							Log( logging.ERROR, '%s, "LookupFieldName" is missing for new field "%s"' % ( TransformationDetails, Action['Name'] ) )
+							Ret = False
+						if 'LookupTable' in Action and 'LookupTableFile' in Action:
+							Log( logging.ERROR, '%s, only one from "LookupTable" and "LookupTableFile" allowed' % TransformationDetails )
+							Ret = False
+						if not 'LookupTable' in Action and not 'LookupTableFile' in Action:
+							Log( logging.ERROR, '%s, "LookupTable" and "LookupTableFile" missing for new field "%s"' % ( TransformationDetails, Action['Name'] ) )
+							Ret = False
+						else:
+							if 'LookupTableFile' in Action:
+								try:
+							                LookupTable_File = open( Action['LookupTableFile'] )
+									Action['LookupTable'] = json.load( LookupTable_File )
+							                LookupTable_File.close()
+								except:
+									Log( logging.ERROR, '%s, error loading lookup table from %s' % ( TransformationDetails, Action['LookupTableFile'] ) )
+									Ret = False
+
+	return Ret
+
+# returns exit code (EXITCODE_ElasticSearch, EXITCODE_OK or EXITCODE_OneOrMoreErrors)
+def SendToElasticSearch( IndexName, Output ):
+	# HTTP bulk insert toward ES
+
+	URL = '%s/%s/%s/_bulk' % ( CONFIG['ES_URL'], IndexName, CONFIG['ES_Type'] )
+
+	try:
+		HTTPResponse = urllib2.urlopen( URL, Output )
+	except:
+		Log( logging.ERROR, 'Error while executing HTTP bulk insert on %s' % IndexName, exc_info=True )
+		return EXITCODE_ElasticSearch
+
+	# Interpreting HTTP bulk insert response
+
+	HTTPPlainTextResponse = HTTPResponse.read()
+
+	if( HTTPResponse.getcode() != 200 ):
+		Log( logging.ERROR, 'Bulk insert on %s failed - HTTP status code = %s - Response %s' % ( IndexName, HTTPResponse.getcode(), HTTPPlainTextResponse ) )
+		return EXITCODE_ElasticSearch
+
+	try:
+		JSONResponse = json.loads( HTTPPlainTextResponse )
+	except:
+		Log( logging.ERROR, 'Error while decoding JSON HTTP response - first 100 characters: %s' % HTTPPlainTextResponse[:100], exc_info=True )
+		return EXITCODE_ElasticSearch
+
+	if JSONResponse['errors']:
+		Log( logging.WARNING, 'Bulk insert on %s failed to process one or more documents' % IndexName )
+		return EXITCODE_OneOrMoreErrors
+	else:
+		return EXITCODE_OK
+
+# returns True or False
+def CheckConfiguration():
+	if not CONFIG['ES_IndexName']:
+		Log( logging.ERROR, 'ElasticSearch index name not provided')
+		return False
+
+	if not CONFIG['ES_Type']:
+		Log( logging.ERROR, 'ElasticSearch type not provided')
+		return False
+
+	if not CONFIG['ES_URL']:
+		Log( logging.ERROR, 'ElasticSearch URL not provided')
+		return False
+
+	if not 'ES_IndexTemplateFileName' in CONFIG:
+		CONFIG['ES_IndexTemplateFileName'] = 'new-index-template.json'
+	else:
+		IndexTemplatePath = '%s/%s' % ( CONF_DIR, CONFIG['ES_IndexTemplateFileName'] )
+
+		if not os.path.isfile( IndexTemplatePath ):
+			Log( logging.ERROR, 'Can\'t find index template file %s' % IndexTemplatePath )
+			return False
+		else:
+			try:
+				IndexTemplate_File = open( IndexTemplatePath )
+				IndexTemplate = json.load( IndexTemplate_File )
+				IndexTemplate_File.close()
+			except:
+				Log( logging.ERROR, 'Index template from %s is not in valid JSON format' % ( IndexTemplatePath ), exc_info=True )
+				return EXITCODE_Program
+
+	if CONFIG['ES_URL'].endswith('/'):
+		CONFIG['ES_URL'] = CONFIG['ES_URL'][:-1]
+
+	if not 'ES_FlushSize' in CONFIG:
+		Log( logging.ERROR, 'Flush size not provided' )
+		return False
+	else:
+		try:
+			CONFIG['ES_FlushSize'] = int(CONFIG['ES_FlushSize'])
+		except:
+			Log( logging.ERROR, 'Flush size must be a positive integer' )
+			return False
+
+		if CONFIG['ES_FlushSize'] < 0:
+			Log( logging.ERROR, 'Flush size must be a positive integer' )
+			return False
+
+	TransformationsOK = True
+
+	if 'Transformations' in CONFIG:
+		for Transformation in CONFIG['Transformations']:
+			TransformationsOK = TransformationsOK and TestTransformation( Transformation )
+
+	if not TransformationsOK:
+		return False
+
+	return True
+
+# return exit code (EXITCODE_OK, EXITCODE_ElasticSearch ) and True|False
+def DoesIndexExist( IndexName ):
+	URL = '%s/%s' % ( CONFIG['ES_URL'], IndexName )
+
+	try:
+		HEADRequest = urllib2.Request(URL)
+		HEADRequest.get_method = lambda : 'HEAD'
+		HTTPResponse = urllib2.urlopen( HEADRequest )
+	except urllib2.HTTPError, err:
+		if err.code == 404:
+			return EXITCODE_OK, False
+		else:
+			Log( logging.ERROR, 'Error while checking if %s index exists' % IndexName, exc_info=True )
+			return EXITCODE_ElasticSearch, None
+
+	return EXITCODE_OK, ( HTTPResponse.getcode() == 200 )
+
+# return exit code
+def CreateIndex( IndexName ):
+
+	# index already exists?
+
+	ExitCode, IndexExists = DoesIndexExist( IndexName )
+
+	if ExitCode != EXITCODE_OK:
+		return ExitCode
+
+	if IndexExists:
+		return EXITCODE_OK
+
+	# index does not exist, creating it
+
+	TemplatePath = '%s/%s' % ( CONF_DIR, CONFIG['ES_IndexTemplateFileName'] )
+
+	try:
+		TemplateFile = open( TemplatePath, 'r' )
+		Template = TemplateFile.read()
+		TemplateFile.close()
+	except:
+		Log( logging.ERROR, 'Error while reading index template from file %s' % TemplatePath, exc_info=True )
+		return EXITCODE_Program
+
+	URL = '%s/%s' % ( CONFIG['ES_URL'], IndexName )
+
+	try:
+		HTTPResponse = urllib2.urlopen( URL, Template )
+	except:
+		# something went wrong but index now exists anyway?
+
+		ExitCode, IndexExists = DoesIndexExist( IndexName )
+
+		if IndexExists:
+			return EXITCODE_OK
+		else:
+			Log( logging.ERROR, 'Error while creating index %s from template %s' % ( IndexName, TemplatePath ), exc_info=True )
+			return EXITCODE_ElasticSearch
+
+	return EXITCODE_OK
+
+# return exit code
+def Main():
+	if not SetupLogging():
+		return EXITCODE_Program
+
+	# Parsing command line arguments
+
+	try:
+		opts, args = getopt.getopt( sys.argv[1:], 'pth', [ 'print', 'test', 'help', 'test-condition=', 'test-condition-data=' ] )
+
+	except getopt.GetoptError as err:
+		Log( logging.ERROR, str(err) )
+		Usage()
+		return EXITCODE_Program
+
+	TestOnly = False
+	PrintOnly = False
+	TestCondition = None
+	TestConditionData = {}
+
+	for o, a in opts:
+		if o in ( '-h', '--help' ):
+			Usage()
+			return EXITCODE_OK
+
+		elif o in ( '-t', '--test' ):
+			TestOnly = True
+
+		elif o in ( '-p', '--print' ):
+			PrintOnly = True
+
+		elif o in ( '--test-condition' ):
+			try:
+				TestCondition = json.loads( a )
+				TestOnly = True
+			except:
+				Log( logging.ERROR, 'Invalid JSON object for %s option' % o )
+				return EXITCODE_Program
+
+		elif o in ( '--test-condition-data' ):
+			try:
+				TestConditionData = json.loads( a )
+				TestOnly = True
+			except:
+				Log( logging.ERROR, 'Invalid JSON object for %s option' % o )
+				return EXITCODE_Program
+
+	if TestCondition:
+		print( "Tested condition evaluated to %s" % ParseConditions( TestCondition, TestConditionData ) )
+		return EXITCODE_OK
+
+	if args == []:
+		Log( logging.ERROR, 'Missing required argument: <plugin_name>' )
+		Usage()
+		return EXITCODE_Program
+
+	if len(args) > 1:
+		Log( logging.ERROR, 'Unexpected arguments: %s' % ' '.join( args[1:] ) )
+		Usage()
+		return EXITCODE_Program
+
+	CONFIG['PluginName'] = args[0]
+
+	# Loading configuration
+
+	NewConfigFileName = '%s.conf' % CONFIG['PluginName']
+
+	try:
+		NewConfig_File = open( '%s/%s' % ( CONF_DIR, NewConfigFileName ) )
+		NewConfig = json.load( NewConfig_File )
+		NewConfig_File.close()
+	except:
+		Log( logging.ERROR, 'Error loading configuration from %s/%s.conf' % ( CONF_DIR, NewConfigFileName ), exc_info=True )
+		return EXITCODE_Program
+
+	CONFIG.update( NewConfig )
+	
+	if 'LogFile' in CONFIG:
+		if not SetupLogging( CONFIG['LogFile'] ):
+			return EXITCODE_Program
+	else:
+		Log( logging.ERROR, 'Missing LogFile' )
+		return EXITCODE_Program
+
+	# Checking configuration
+
+	if not CheckConfiguration():
+		return EXITCODE_Program
+
+	if TestOnly:
+		print('Configuration tested successfully')
+		return EXITCODE_OK
+
+	if not CONFIG['InputFile']:
+		r, w, x = select.select([sys.stdin], [], [], 0)
+		if not r:
+			Log( logging.ERROR, 'Error while reading input data from stdin' )
+			return EXITCODE_Program
+
+	# Creating index
+
+	IndexName = datetime.datetime.now().strftime( CONFIG['ES_IndexName'] )
+
+	ExitCode = CreateIndex( IndexName )
+
+	if ExitCode != EXITCODE_OK:
+		return ExitCode
+
+	# Timestamp for ES indexing (UTC)
+
+	TS = datetime.datetime.utcnow().strftime( '%Y-%m-%dT%H:%M:%SZ' )
+
+	# Read pmacct's JSON output and perform transformations
+
+	Output = ''
+	Count = 0
+	ExitCode = EXITCODE_OK
+
+	if CONFIG['InputFile']:
+		InputFile = ExpandMacro( CONFIG['InputFile'] )
+	else:
+		InputFile = '-'
+
+	try:
+		for line in fileinput.input( InputFile, mode='rU' ):
+			try:
+				JSONData = json.loads( line )
+			except:
+				Log( logging.ERROR, 'Error while decoding pmacct\'s JSON output: %s' % line )
+				break
+
+			JSONData['@timestamp'] = TS
+
+			try:
+				if 'Transformations' in CONFIG:
+					for Transformation in CONFIG['Transformations']:
+						if ParseConditions( Transformation['Conditions'], JSONData ):
+							for Action in Transformation['Actions']:
+								Action_Type = Action['Type']
+
+								if Action_Type == 'AddField':
+									NewVal = ExpandDataMacros( Action['Value'], JSONData )
+									JSONData[ Action['Name'] ] = NewVal
+
+								elif Action_Type == 'AddFieldLookup':
+									if Action['LookupFieldName'] in JSONData:
+										NewVal = None
+
+										if str(JSONData[ Action['LookupFieldName'] ]) in Action['LookupTable']:
+											NewVal = Action['LookupTable'][ str(JSONData[ Action['LookupFieldName'] ]) ]
+										else:
+											if "*" in Action['LookupTable']:
+												NewVal = Action['LookupTable']['*']
+
+										if NewVal:
+											JSONData[ Action['Name'] ] = ExpandDataMacros( NewVal, JSONData )
+								
+								elif Action_Type == 'DelField':
+									if Action['Name'] in JSONData:
+										del JSONData[ Action['Name'] ]
+			except:
+				Log( logging.ERROR, 'Error while applying transformations to pmacct\'s JSON output: %s' % line, exc_info=True )
+				break
+			
+			Output = Output + '{"index":{}}' + '\n'
+			Output = Output + json.dumps( JSONData ) + '\n'
+
+			if PrintOnly:
+				print(Output)
+				Output = ''
+			else:
+				Count = Count + 1
+				if CONFIG['ES_FlushSize'] > 0 and Count >= CONFIG['ES_FlushSize']:
+					Output = Output + '\n'
+					ES_ExitCode = SendToElasticSearch( IndexName, Output )
+					Output = ''
+					Count = 0
+
+					if ES_ExitCode == EXITCODE_ElasticSearch:
+						return ES_ExitCode
+					if ES_ExitCode == EXITCODE_OneOrMoreErrors:
+						ExitCode = EXITCODE_OneOrMoreErrors
+
+		if not PrintOnly and Output != '':
+			Output = Output + '\n'
+			ES_ExitCode = SendToElasticSearch( IndexName, Output )
+			Output = ''
+			Count = 0
+
+			if ES_ExitCode == EXITCODE_ElasticSearch:
+				return ES_ExitCode
+			if ES_ExitCode == EXITCODE_OneOrMoreErrors:
+				ExitCode = EXITCODE_OneOrMoreErrors
+
+	except:
+		Log( logging.ERROR, 'Error while reading and processing input data from %s' % InputFile, exc_info=True )
+		return EXITCODE_Program
+
+	return ExitCode
+
+if __name__ == '__main__':
+	try:
+		RetVal = Main()
+	except:
+		Log( logging.ERROR, 'Unhandled exception', exc_info=True )
+		RetVal = EXITCODE_Program
+	sys.exit( RetVal )
+
+	# Test conditions
+	# -------------------
+	#
+	#C = [ { "Name": "Bob" }, { "Age": 16, "__op__": ">=" } ]
+	#C = [ "OR", { "Name": "Bob" }, { "Name": "Tom" } ]
+	#C = [ "OR", [ { "Name": "Bob" }, { "Age": 16, "__op__": ">=" } ], { "Name": "Tom" }, [ { "Name": "Lisa" }, { "Age": 20, "__op__": ">="  } ] ]
+	#C = [ "Invalid" ]
+	#
+	#Data = [	
+	#	{ "Name": "Bob", "Age": 15 },
+	#	{ "Name": "Bob", "Age": 16 },
+	#	{ "Name": "Ken", "Age": 14 },
+	#	{ "Name": "Tom", "Age": 14 },
+	#	{ "Name": "Tom", "Age": 20 },
+	#	{ "Name": "Lisa", "Age": 15 },
+	#	{ "Name": "Lisa", "Age": 22 }
+	#]
+	#
+	#for Person in Data:
+	#	try:
+	#		if ParseConditions( C, Person ):
+	#			print( "YES - %s" % Person )
+	#		else:
+	#			print( "--- - %s" % Person )
+	#	except Exception as e:
+	#		print( "ParseConditions error: %s" % str(e) )
+

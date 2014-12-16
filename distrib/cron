@@ -1,0 +1,14 @@
+# /etc/cron.d/pmacct-to-elasticsearch: crontab fragment for pmacct-to-elasticsearch
+
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:<P2ES_BIN_DIR>
+
+# m h dom mon dow user  command
+
+# Example: dump data from pmacct in-memory-table and process them with pmacct-to-elasticsearch
+# every 5 minutes
+#
+#*/5 *	* * *     root  pmacct -l -p /var/spool/pmacct/my_plugin.pipe -s -O json -e | pmacct-to-elasticsearch my_plugin
+#
+
+#EOF

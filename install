@@ -1,0 +1,136 @@
+#!/bin/bash
+
+# if you change the following CONF_DIR value you must
+# change it in pmacct-to-elasticsearch too.
+CONF_DIR=/etc/p2es
+
+BIN_DIR=/usr/local/bin
+
+echo ""
+echo "pmacct-to-elasticsearch installation script"
+echo ""
+echo "The following directories will be used for the installation:"
+echo " - $CONF_DIR: configuration files"
+echo " - $BIN_DIR: the main pmacct-to-elasticsearch program"
+echo ""
+read -p "Proceed [yes|NO]: " PROCEED
+
+if [ "$PROCEED" != "yes" ]; then
+	echo "Installation aborted"
+	exit 0
+fi
+
+# -----------------------------------------------------------
+
+echo -n "Creating configuration directory ($CONF_DIR)... "
+
+if [ ! -d $CONF_DIR ]; then
+
+	mkdir -p $CONF_DIR &>/dev/null
+
+	if [ $? -ne 0 ]; then
+		echo "ERROR - exit code $?"
+		exit 1
+	else
+		mkdir $CONF_DIR/triggers &>/dev/null
+
+		if [ $? -ne 0 ]; then
+			echo "ERROR creating triggers subdirectory - exit code $?"
+			exit 1
+		else
+			echo "OK"
+		fi
+	fi
+else
+	echo "OK (already exists)"
+fi
+
+# -----------------------------------------------------------
+
+echo -n "Copying default configuration files in $CONF_DIR... "
+
+cp -i distrib/new-index-template.json $CONF_DIR
+
+if [ $? -ne 0 ]; then
+	echo "ERROR - exit code $?"
+	exit 1
+else
+	echo "OK"
+fi
+
+# -----------------------------------------------------------
+
+echo -n "Copying default trigger in $CONF_DIR/triggers... "
+
+if [ -f $CONF_DIR/triggers/default_trigger ]; then
+	echo ""
+	read -p "- Default trigger already exists at $CONF_DIR/triggers/default_trigger: overwrite it? [yes|NO] " PROCEED
+else
+	PROCEED="yes"
+fi
+
+if [ "$PROCEED" == "yes" ]; then
+	BIN_DIR_SED="${BIN_DIR//\//\\/}"
+	sed -e "s/<P2ES_BIN_DIR>/$BIN_DIR_SED/" distrib/default_trigger > $CONF_DIR/triggers/default_trigger
+
+	if [ $? -ne 0 ]; then
+		echo "ERROR - exit code $?"
+		exit 1
+	else
+		echo "OK"
+		chmod u+x $CONF_DIR/triggers/default_trigger
+	fi
+else
+	echo "Skipped"
+fi
+
+# -----------------------------------------------------------
+
+echo -n "Copying pmacct-to-elasticsearch program to $BIN_DIR... "
+
+cp pmacct-to-elasticsearch $BIN_DIR/
+
+if [ $? -ne 0 ]; then
+	echo "ERROR - exit code $?"
+	exit 1
+else
+	echo "OK"
+	chmox u+x $BIN_DIR/pmacct-to-elasticsearch
+fi
+
+# -----------------------------------------------------------
+
+echo -n "Copying crontab job fragment to /etc/cron.d... "
+
+if [ -d /etc/cron.d ]; then
+	if [ ! -f /etc/cron.d/pmacct-to-elasticsearch ]; then
+		BIN_DIR_SED="${BIN_DIR//\//\\/}"
+		sed -e "s/<P2ES_BIN_DIR>/$BIN_DIR_SED/" distrib/cron > /etc/cron.d/pmacct-to-elasticsearch
+
+		if [ $? -ne 0 ]; then
+			echo "ERROR - exit code $?"
+			exit 1
+		else
+			echo "OK"
+		fi
+	else
+		echo "skipped (/etc/cron.d/pmacct-to-elasticsearch already exists)"
+	fi
+else
+	echo "ERROR - /etc/cron.d does not exist"
+	exit 1
+fi
+
+# -----------------------------------------------------------
+
+echo "====================="
+echo "Installation complete"
+echo "====================="
+echo ""
+
+if [ "$CONF_DIR" != "/etc/p2es" ]; then
+	echo "WARNING: the default configuration directory (CONF_DIR) has been changed from /etc/p2es to $CONF_DIR: please change the CONF_DIR variable in pmacct-to-elasticsearch too."
+fi
+
+echo "Some configurations are needed now. Read the CONFIGURATION.md file for more details."
+echo ""

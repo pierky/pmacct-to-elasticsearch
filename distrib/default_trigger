@@ -1,0 +1,21 @@
+#!/bin/sh
+
+# Default trigger to run pmacct-to-elasticsearch from
+# pmacct "print_trigger_exec" configuration key.
+#
+# You can copy and edit this file or create a link to 
+# it in the format:
+#
+#   <plugin_name> -> ./default_trigger
+#
+# Example:
+#
+#   # cd /etc/p2es/triggers/
+#   # ln -s default_trigger plugin2
+#   # ls -l
+#   total 4
+#   -rwxr--r-- 1 root root 90 Dec 15 20:20 default_trigger
+#   lrwxrwxrwx 1 root root 15 Dec 15 20:21 plugin2 -> default_trigger
+
+PLUGIN_NAME=`basename $0`
+<P2ES_BIN_DIR>/pmacct-to-elasticsearch $PLUGIN_NAME &
