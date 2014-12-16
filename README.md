@@ -3,7 +3,7 @@ pmacct-to-elasticsearch
 
 **pmacct-to-elasticsearch** is a python script designed to read JSON output from **pmacct** daemons, to process it and to store it into **ElasticSearch**. It works with both *memory* and *print* plugins and, optionally, it can perform **manipulations on data** (such as to add fields on the basis of other values).
 
-![Data flow](https://raw.github.com/pierky/pmacct-to-elasticsearch/master/img/data_flow.png)
+<p align="center"><img src="https://raw.github.com/pierky/pmacct-to-elasticsearch/master/img/data_flow.png"></p>
 
 1. **pmacct daemons** collect IP accounting data and process them with their plugins;
 2. data are stored into **in-memory-tables** (*memory* plugins) or **JSON files** (*print* plugins);
