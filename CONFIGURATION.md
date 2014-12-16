@@ -14,7 +14,7 @@ redirect its output to pmacct-to-elasticsearch; for "memory" plugins the pmacct
 daemon can directly execute pmacct-to-elasticsearch. More details will follow
 within the rest of this document.
 
-![Configuration files](https://raw.github.com/pierky/pmacct-to-elasticsearch/master/img/config_files.png)
+<p align="center"><img src="https://raw.github.com/pierky/pmacct-to-elasticsearch/master/img/config_files.png"/></p>
 
 Print plugins are preferable because, in case of pmacct daemon graceful
 restart or shutdown, data are written to the output file and the trigger
