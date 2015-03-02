@@ -500,7 +500,7 @@ def Main():
 		NewConfig = json.load( NewConfig_File )
 		NewConfig_File.close()
 	except:
-		Log( logging.ERROR, 'Error loading configuration from %s/%s.conf' % ( CONF_DIR, NewConfigFileName ), exc_info=True )
+		Log( logging.ERROR, 'Error loading configuration from %s/%s' % ( CONF_DIR, NewConfigFileName ), exc_info=True )
 		return EXITCODE_Program
 
 	CONFIG.update( NewConfig )
