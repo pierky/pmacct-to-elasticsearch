@@ -95,7 +95,7 @@ if [ $? -ne 0 ]; then
 	exit 1
 else
 	echo "OK"
-	chmox u+x $BIN_DIR/pmacct-to-elasticsearch
+	chmod u+x $BIN_DIR/pmacct-to-elasticsearch
 fi
 
 # -----------------------------------------------------------
