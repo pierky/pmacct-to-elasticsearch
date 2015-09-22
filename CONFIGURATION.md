@@ -70,6 +70,14 @@ These files are in JSON format and contain the following keys:
 
    **Default**: "http://localhost:9200"
 
+- **ES_AuthType** [optional]: authentication method for ElasticSearch HTTP API.
+   Can be one of "none", "basic" and "digest".
+
+   **Default**: "none"
+
+- **ES_UserName** and **ES_Password** [optional]: username and password used
+   in HTTP authentication. Required when ES_AuthType is "basic" or "digest".
+
 - **ES_IndexName** [required]: name of the ElasticSearch index used to store
    pmacct-to-elasticsearch output.
 

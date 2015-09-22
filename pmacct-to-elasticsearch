@@ -32,6 +32,7 @@ DEF_CONFIG = {
 	'ES_URL': 'http://localhost:9200',
 	'ES_IndexName': '',
 	'ES_Type': '',
+	'ES_AuthType': 'none',
 
 	'ES_FlushSize': 5000,
 
@@ -344,6 +345,20 @@ def CheckConfiguration():
 	if CONFIG['ES_URL'].endswith('/'):
 		CONFIG['ES_URL'] = CONFIG['ES_URL'][:-1]
 
+	if CONFIG['ES_AuthType']:
+		if not CONFIG['ES_AuthType'] in [ 'none', 'basic', 'digest' ]:
+			Log( logging.ERROR, 'Authentication type must be "none" (default), "basic" or "digest"' )
+			return False
+
+		if CONFIG['ES_AuthType'] in [ 'basic', 'digest' ]:
+			if not CONFIG['ES_UserName']:
+				Log( logging.ERROR, 'Authentication required but username not provided' )
+				return False
+
+			if not CONFIG['ES_Password']:
+				Log( logging.ERROR, 'Authentication required but password not provided' )
+				return False
+
 	if not 'ES_FlushSize' in CONFIG:
 		Log( logging.ERROR, 'Flush size not provided' )
 		return False
@@ -526,6 +541,23 @@ def Main():
 		if not r:
 			Log( logging.ERROR, 'Error while reading input data from stdin' )
 			return EXITCODE_Program
+
+  # Preparing for HTTP authentication
+
+	if CONFIG['ES_AuthType'] != 'none':
+		pwdman = urllib2.HTTPPasswordMgrWithDefaultRealm()
+		pwdman.add_password( None, CONFIG['ES_URL'], CONFIG['ES_UserName'], CONFIG['ES_Password'] )
+
+		if CONFIG['ES_AuthType'] == 'basic':
+			auth_handler = urllib2.HTTPBasicAuthHandler(pwdman)
+		elif CONFIG['ES_AuthType'] == 'digest':
+			auth_handler = urllib2.HTTPDigestAuthHandler(pwdman)
+		else:
+			Log( logging.ERROR, 'Unexpected authentication type: %s' % CONFIG['ES_AuthType'] )
+			return EXITCODE_Program
+
+		opener = urllib2.build_opener(auth_handler)
+		urllib2.install_opener(opener)
 
 	# Creating index
 
