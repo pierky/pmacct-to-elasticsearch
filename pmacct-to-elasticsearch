@@ -16,7 +16,7 @@ import datetime
 import urllib2
 
 APP_NAME		= 'pmacct-to-elasticsearch'
-CURRENT_RELEASE		= 'v0.1.0'
+CURRENT_RELEASE		= 'v0.2.0'
 
 CONF_DIR		= '/etc/p2es'
 
