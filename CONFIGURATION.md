@@ -117,22 +117,23 @@ These files are in JSON format and contain the following keys:
 
            "_source" : { "enabled" : false }
 
-   If you are sure that your source/destination host/net fields will always contains IPv4 only addresses,
-   please consider using the ip datatype.
-   (https://www.elastic.co/guide/en/elasticsearch/reference/2.1/ip.html) by adding a mapping similar to 
-   the following one to the dynamic_templates section of your template file:
+   If you are sure that your source/destination host/net fields will always
+   contain IPv4 only addresses, please consider using the ip datatype
+   (https://www.elastic.co/guide/en/elasticsearch/reference/2.1/ip.html) by
+   adding a mapping similar to the following one to the dynamic_templates
+   section of your template file:
 
-     "dynamic_templates": [
-       {
-         "ipv4_template" : {
-           "match_pattern": "regex",
-           "match" : "_?(ip|net)_(src|dst)$",
-           "mapping": { "type": "ip", "index": "not_analyzed" }
-       }
-       },
-       {
-         "string_template" : {
-       ...
+           "dynamic_templates": [
+             {
+               "ipv4_template" : {
+                 "match_pattern": "regex",
+                 "match" : "_?(ip|net)_(src|dst)$",
+                 "mapping": { "type": "ip", "index": "not_analyzed" }
+               }
+             },
+             {
+               "string_template" : {
+               ...
 
    As of version 2.1 of Elasticsearch, IPv6 addresses are not supported yet in the ip datatype.
 
