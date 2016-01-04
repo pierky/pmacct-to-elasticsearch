@@ -21,6 +21,8 @@ echo "The following directories will be used for the installation:"
 echo " - $CONF_DIR: configuration files"
 echo " - $BIN_DIR: the main pmacct-to-elasticsearch program"
 echo ""
+echo "With -F option, Replace all files without confirmation"
+echo ""
 
 if [ "$FORCE" != "yes" ]; then
         read -p "Proceed [yes|NO]: " PROCEED
