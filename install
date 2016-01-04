@@ -6,6 +6,14 @@ CONF_DIR=/etc/p2es
 
 BIN_DIR=/usr/local/bin
 
+FORCE="no"
+
+while getopts "F" opt; do
+  case $opt in
+    F) FORCE="yes" ;;
+  esac
+done
+
 echo ""
 echo "pmacct-to-elasticsearch installation script"
 echo ""
@@ -13,7 +21,12 @@ echo "The following directories will be used for the installation:"
 echo " - $CONF_DIR: configuration files"
 echo " - $BIN_DIR: the main pmacct-to-elasticsearch program"
 echo ""
-read -p "Proceed [yes|NO]: " PROCEED
+
+if [ "$FORCE" != "yes" ]; then
+        read -p "Proceed [yes|NO]: " PROCEED
+else
+        PROCEED="yes"
+fi
 
 if [ "$PROCEED" != "yes" ]; then
 	echo "Installation aborted"
@@ -49,7 +62,12 @@ fi
 
 echo -n "Copying default configuration files in $CONF_DIR... "
 
-cp -i distrib/new-index-template.json $CONF_DIR
+if [ "$FORCE" != "yes" ]; then
+  cp -i distrib/new-index-template.json $CONF_DIR
+else
+  cp distrib/new-index-template.json $CONF_DIR
+fi
+
 
 if [ $? -ne 0 ]; then
 	echo "ERROR - exit code $?"
@@ -64,7 +82,11 @@ echo -n "Copying default trigger in $CONF_DIR/triggers... "
 
 if [ -f $CONF_DIR/triggers/default_trigger ]; then
 	echo ""
-	read -p "- Default trigger already exists at $CONF_DIR/triggers/default_trigger: overwrite it? [yes|NO] " PROCEED
+        if [ "$FORCE" != "yes" ]; then
+	        read -p "- Default trigger already exists at $CONF_DIR/triggers/default_trigger: overwrite it? [yes|NO] " PROCEED
+        else
+	        PROCEED="yes"
+        fi
 else
 	PROCEED="yes"
 fi
