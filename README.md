@@ -27,6 +27,12 @@ Please refer to the [CONFIGURATION.md](CONFIGURATION.md) file. The [TRANSFORMATI
 
 A simple tutorial on pmacct integration with ElasticSearch/Kibana using pmacct-to-elasticsearch can be found at http://blog.pierky.com/integration-of-pmacct-with-elasticsearch-and-kibana.
 
+## Future work
+
+- Improve performances by introducing multi-thread processing of input data.
+- Add support of more pmacct output formats (CSV, Apache Avro, ...).
+- Read input from stdin pipes too.
+
 ## Author
 
 Pier Carlo Chiodi - http://pierky.com/aboutme
