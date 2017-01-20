@@ -1,0 +1,160 @@
+#!/usr/bin/env python
+
+import argparse
+import logging
+import sys
+
+from transformations import *
+
+
+APP_NAME = 'pmacct-to-elasticsearch'
+CURRENT_RELEASE = 'v0.3.0'
+
+CONF_DIR = '/etc/p2es'
+
+EXITCODE_OK = 0
+EXITCODE_OneOrMoreErrors = 1
+
+EXITCODE_Program = 2
+EXITCODE_ElasticSearch = 3
+
+DEF_CONFIG = {
+    'LogFile': '/var/log/{}-$PluginName.log'.format(APP_NAME),
+
+    'ES_URL': 'http://localhost:9200',
+    'ES_IndexName': '',
+    'ES_Type': '',
+    'ES_AuthType': 'none',
+
+    'ES_FlushSize': 5000,
+
+    'InputFile': None,
+
+    'Transformations': []
+}
+
+CONFIG = DEF_CONFIG.copy()
+
+
+def expand_macro(s):
+    if s is None:
+        return None
+    
+    out = s
+    out = out.replace('$PluginName', CONFIG.get('PluginName') or 'default')
+    out = out.replace('$IndexName', datetime.datetime.now().strftime(
+        CONFIG.get('ES_IndexName') or 'default'
+    ))
+    out = out.replace('$Type', CONFIG.get('ES_Type') or 'default')
+    return out
+
+def expand_data_macros(s, dic):
+    if "$" in s:
+        res = s
+        for k in dic:
+            res = res.replace("${}".format(k), str(dic[k]))
+        return res
+    return s
+
+def setup_logginig(baselogfile=None):
+    if baselogfile:
+        logfilepath = expand_macros(baselogfile)
+    else:
+        logfilepath = None
+
+    logger = logging.getLogger(APP_NAME)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    logger.setLevel(logging.INFO)
+
+    logger.handlers = []
+
+    if logfilepath:
+        # log to stdout too
+        if sys.stdout.isatty():
+            try:
+                hdlr = logging.StreamHandler(sys.stdout)
+                hdlr.setFormatter(formatter)
+                logger.addHandler(hdlr)
+            except:
+                pass
+        try:
+            hdlr = logging.handlers.RotatingFileHandler(logfilepath,
+                                                        maxBytes=1000000,
+                                                        backupCount=3)
+            hdlr.setFormatter(formatter)
+            logger.addHandler(hdlr)
+        except:
+            log(logging.ERROR,
+                "Can't setup logging to file {}. "
+                "Ensure it has write permissions for the current user.".format(
+                    logfilepath
+                )
+            )
+            return False
+    else:
+        try:
+            hdlr = logging.StreamHandler(sys.stderr)
+            hdlr.setFormatter(formatter)
+            logger.addHandler(hdlr)
+        except:
+	    sys.stderr.write("Can't setup logging to stderr.")
+            return False
+
+    return True
+
+def log(lev, msg, exc_info=False):
+    logger = logging.getLogger(APP_NAME)
+    logger.log(lev, msg, exc_info=exc_info)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="pmacct-to-elasticsearch"
+    )
+    parser.add_argument(
+        "-p", "--print",
+        help="only print output to stdout "
+             "(does not send data to ElasticSearch)",
+        action="store_true",
+        dest="print_only")
+
+    parser.add_argument(
+        "-t", "--test",
+        help="only tests configuration "
+             "(does not send data to ElasticSearch)",
+        action="store_true",
+        dest="test_only")
+
+    args = parser.parse_args()
+
+    Config.load(args.cfg_file)
+
+##Test conditions
+##-------------------
+#
+##C = [ { "Name": "Bob" }, { "Age": 16, "__op__": ">=" } ]
+##C = [ "OR", { "Name": "Bob" }, { "Name": "Tom" } ]
+#C = [ "OR", [ { "Name": "Bob" }, { "Age": 16, "__op__": ">=" } ], { "Name": "Tom" }, [ { "Name": "Lisa" }, { "Age": 20, "__op__": ">="  } ] ]
+##C = [ "Invalid" ]
+#
+#Data = [	
+#	{ "Name": "Bob", "Age": 15 },
+#	{ "Name": "Bob", "Age": 16 },
+#	{ "Name": "Ken", "Age": 14 },
+#	{ "Name": "Tom", "Age": 14 },
+#	{ "Name": "Tom", "Age": 20 },
+#	{ "Name": "Lisa", "Age": 15 },
+#	{ "Name": "Lisa", "Age": 22 }
+#]
+#
+#print(C)
+#for Person in Data:
+#    try:
+#        if parse_conditions(C, Person):
+#            print( "YES - %s" % Person )
+#        else:
+#            print( "--- - %s" % Person )
+#    except Exception as e:
+#        print( "ParseConditions error: %s" % str(e) )
+#        raise
+
+main()
