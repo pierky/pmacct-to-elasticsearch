@@ -3,6 +3,9 @@
 import json
 
 
+# Parse list of conditions c against data d.
+# Returns: True | False (conditions matched / did not match).
+# Raises exceptions: yes.
 def parse_conditions_list(c, d):
     if not c:
         raise Exception('Empty list')
@@ -39,6 +42,9 @@ def parse_conditions_list(c, d):
                 return False
         return True
 
+# Parse condition c against data d, using operator opfield.
+# Returns: True | False (condition matched / did not match).
+# Raises exceptions: yes.
 def parse_conditions_dict(c, d, opfield):
     op = '='
     n = None
@@ -85,6 +91,9 @@ def parse_conditions_dict(c, d, opfield):
     else:
         raise Exception('Operator not implemented: "{}"'.format(op))
 
+# Parse conditions c against data d.
+# Return: True | False (conditions matched / did not match).
+# Raises exception: yes.
 def parse_conditions(c, d, opfield='__op__'):
     if isinstance(c, list):
         return parse_conditions_list(c, d)
@@ -95,7 +104,9 @@ def parse_conditions(c, d, opfield='__op__'):
             type(c), str(c)
         ))
 
-# returns True or False
+# Tests if a transformation syntax is valid.
+# Returns: True | False.
+# Raises exceptions: yes.
 def test_transformation(tr):
     ret = True
 
@@ -161,3 +172,39 @@ def test_transformation(tr):
                             tr_det, action['LookupTableFile']
                         )
                     )
+
+if __name__ == '__main__':
+    #Test conditions
+    #-------------------
+    
+    #C = [ { "Name": "Bob" }, { "Age": 16, "__op__": ">=" } ]
+    #C = [ "OR", { "Name": "Bob" }, { "Name": "Tom" } ]
+    C = [ "OR",
+        [ { "Name": "Bob" }, { "Age": 16, "__op__": ">=" } ],
+        { "Name": "Tom" },
+        [ { "Name": "Lisa" }, { "Age": 20, "__op__": ">="  } ]
+    ]
+    #C = [ "Invalid" ]
+    
+    Data = [	
+    	{ "Name": "Bob", "Age": 15 },
+    	{ "Name": "Bob", "Age": 16 },
+    	{ "Name": "Ken", "Age": 14 },
+    	{ "Name": "Tom", "Age": 14 },
+    	{ "Name": "Tom", "Age": 20 },
+    	{ "Name": "Lisa", "Age": 15 },
+    	{ "Name": "Lisa", "Age": 22 }
+    ]
+    
+    print(C)
+    for Person in Data:
+        try:
+            if parse_conditions(C, Person):
+                print( "YES - %s" % Person )
+            else:
+                print( "--- - %s" % Person )
+        except Exception as e:
+            print( "ParseConditions error: %s" % str(e) )
+            raise
+
+

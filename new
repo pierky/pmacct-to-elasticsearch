@@ -1,9 +1,17 @@
 #!/usr/bin/env python
 
 import argparse
+from copy import deepcopy
+import datetime
+import json
 import logging
+from logging.handlers import RotatingFileHandler
+import os.path
+import select
 import sys
 
+
+from es import *
 from transformations import *
 
 
@@ -36,11 +44,11 @@ DEF_CONFIG = {
 CONFIG = DEF_CONFIG.copy()
 
 
-def expand_macro(s):
+def expand_macros(s):
     if s is None:
         return None
     
-    out = s
+    out = deepcopy(s)
     out = out.replace('$PluginName', CONFIG.get('PluginName') or 'default')
     out = out.replace('$IndexName', datetime.datetime.now().strftime(
         CONFIG.get('ES_IndexName') or 'default'
@@ -56,7 +64,95 @@ def expand_data_macros(s, dic):
         return res
     return s
 
-def setup_logginig(baselogfile=None):
+# Checks config and logs any errors.
+# Returns: True | False.
+# Raises exceptions: no
+def check_config():
+    if not CONFIG['ES_IndexName']:
+        log(logging.ERROR, 'ElasticSearch index name not provided')
+        return False
+
+    if not CONFIG['ES_Type']:
+        log(logging.ERROR, 'ElasticSearch type not provided')
+        return False
+
+    if not CONFIG['ES_URL']:
+        log(logging.ERROR, 'ElasticSearch URL not provided')
+        return False
+
+    if not 'ES_IndexTemplateFileName' in CONFIG:
+        CONFIG['ES_IndexTemplateFileName'] = 'new-index-template.json'
+    else:
+        index_tpl_path = '{}/{}'.format(
+            CONF_DIR, CONFIG['ES_IndexTemplateFileName']
+        )
+
+        if not os.path.isfile(index_tpl_path):
+            log(logging.ERROR,
+                'Can\'t find index template file {}'.format(index_tpl_path))
+            return False
+        else:
+            with open(index_tpl_path, "r") as f:
+                try:
+                    index_tpl = json.load(f)
+                except Exception as e:
+                    log(logging.ERROR,
+                        'Index template from {} is not '
+                        'in valid JSON format: {}'.format(
+                            index_tpl_path, str(e)
+                        ),
+                        exc_info=True)
+                    return False
+
+    if CONFIG['ES_URL'].endswith('/'):
+        CONFIG['ES_URL'] = CONFIG['ES_URL'][:-1]
+
+    if CONFIG['ES_AuthType']:
+        if not CONFIG['ES_AuthType'] in ('none', 'basic', 'digest'):
+            log(logging.ERROR,
+                'Authentication type must be "none" (default), '
+                '"basic" or "digest"')
+            return False
+
+    if CONFIG['ES_AuthType'] in ('basic', 'digest'):
+        if not CONFIG['ES_UserName']:
+            log(logging.ERROR,
+                'Authentication required but username not provided')
+            return False
+
+        if not CONFIG['ES_Password']:
+            log(logging.ERROR, 'Authentication required but password not provided')
+            return False
+
+    if not 'ES_FlushSize' in CONFIG:
+        log(logging.ERROR, 'Flush size not provided')
+        return False
+    else:
+        try:
+            CONFIG['ES_FlushSize'] = int(CONFIG['ES_FlushSize'])
+        except:
+            log(logging.ERROR, 'Flush size must be a positive integer')
+            return False
+
+        if CONFIG['ES_FlushSize'] < 0:
+            log(logging.ERROR, 'Flush size must be a positive integer')
+            return False
+
+    if 'Transformations' in CONFIG:
+        for tr in CONFIG['Transformations']:
+            try:
+                test_transformation(tr)
+            except Exception as e:
+                log(logging.ERROR,
+                    'Invalid transformation: {}'.format(str(e)))
+                return False
+
+    return True
+
+# Setup logging to stdout (is possible), file or stderr.
+# Returns: True | False.
+# Raises exceptions: no.
+def setup_logging(baselogfile=None):
     if baselogfile:
         logfilepath = expand_macros(baselogfile)
     else:
@@ -111,50 +207,111 @@ def main():
         description="pmacct-to-elasticsearch"
     )
     parser.add_argument(
+        "pluginname",
+        help="Plugin name.")
+    parser.add_argument(
         "-p", "--print",
-        help="only print output to stdout "
-             "(does not send data to ElasticSearch)",
+        help="Only print output to stdout "
+             "(does not send data to ElasticSearch).",
         action="store_true",
         dest="print_only")
-
     parser.add_argument(
         "-t", "--test",
-        help="only tests configuration "
-             "(does not send data to ElasticSearch)",
+        help="Only tests configuration "
+             "(does not send data to ElasticSearch).",
         action="store_true",
         dest="test_only")
+    parser.add_argument(
+        "--test-condition",
+        help="Test conditions given in FILE against --test-condition-data.",
+        metavar="FILE",
+        dest="test_condition")
+    parser.add_argument(
+        "--test-condition-data",
+        help="Data used to test condition given in --test-condition.",
+        metavar="FILE",
+        dest="test_condition_data")
 
     args = parser.parse_args()
 
-    Config.load(args.cfg_file)
+    if not setup_logging():
+        return EXITCODE_Program
 
-##Test conditions
-##-------------------
-#
-##C = [ { "Name": "Bob" }, { "Age": 16, "__op__": ">=" } ]
-##C = [ "OR", { "Name": "Bob" }, { "Name": "Tom" } ]
-#C = [ "OR", [ { "Name": "Bob" }, { "Age": 16, "__op__": ">=" } ], { "Name": "Tom" }, [ { "Name": "Lisa" }, { "Age": 20, "__op__": ">="  } ] ]
-##C = [ "Invalid" ]
-#
-#Data = [	
-#	{ "Name": "Bob", "Age": 15 },
-#	{ "Name": "Bob", "Age": 16 },
-#	{ "Name": "Ken", "Age": 14 },
-#	{ "Name": "Tom", "Age": 14 },
-#	{ "Name": "Tom", "Age": 20 },
-#	{ "Name": "Lisa", "Age": 15 },
-#	{ "Name": "Lisa", "Age": 22 }
-#]
-#
-#print(C)
-#for Person in Data:
-#    try:
-#        if parse_conditions(C, Person):
-#            print( "YES - %s" % Person )
-#        else:
-#            print( "--- - %s" % Person )
-#    except Exception as e:
-#        print( "ParseConditions error: %s" % str(e) )
-#        raise
+    if args.test_condition and args.test_condition_data:
+        with open(args.test_condition, "r") as f:
+            c = json.load(f)
+        with open(args.test_condition_data, "r") as f:
+            d = json.load(f)
+        print(
+            "Tested condition evaluated to {}".format(
+                parse_conditions(c, d)
+            )
+        )
+        return EXITCODE_OK
+    else:
+        if args.test_condition and not args.test_condition_data or \
+            args.test_condition_data and not args.test_condition:
+            log(logging.ERROR, "--test-condition and --test-condition-data "
+                "must be used togheter.")
+            return EXITCODE_Program
 
+    CONFIG["PluginName"] = args.pluginname
+
+    # Loading configuration
+    new_cfg_file_name = "{}.conf".format(CONFIG["PluginName"])
+    try:
+        with open('{}/{}'.format(CONF_DIR, new_cfg_file_name), "r") as f:
+            new_cfg = json.load(f)
+    except:
+        log(logging.ERROR,
+            'Error loading configuration from {}/{}'.format(
+                CONF_DIR, new_cfg_file_name),
+            exc_info=True)
+        return EXITCODE_Program
+
+    CONFIG.update(new_cfg)
+
+    if 'LogFile' in CONFIG:
+        if not setup_logging(CONFIG['LogFile']):
+            return EXITCODE_Program
+    else:
+        log(logging.ERROR, 'Missing LogFile')
+        return EXITCODE_Program
+
+    if not check_config():
+        return EXITCODE_Program
+
+    if args.test_only:
+        print('Configuration tested successfully')
+        return EXITCODE_OK
+    
+    if not CONFIG['InputFile']:
+        r, w, x = select.select([sys.stdin], [], [], 0)
+        if not r:
+            log(logging.ERROR, 'Error while reading input data from stdin')
+            return EXITCODE_Program
+
+    # Preparing for HTTP authentication
+    try:
+        prepare_for_http_auth(CONFIG)
+    except Exception as e:
+        log(logging.ERROR, str(e))
+        return EXITCODE_Program
+
+    # Creating index
+    index_name = datetime.datetime.now().strftime(CONFIG['ES_IndexName'])
+    try:
+        create_index(index_name, CONF_DIR, CONFIG)
+    except Exception as e:
+        log(logging.ERROR, "Error while creating index {}: {}".format(
+            index_name, str(e))
+        )
+        return EXITCODE_Program
+    
+    # Timestamp for ES indexing (UTC)
+
+    ts = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    # Read pmacct's JSON output and perform transformations
+    print("Done!")
 main()
