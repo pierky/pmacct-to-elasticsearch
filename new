@@ -8,12 +8,16 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os.path
 import select
+try:
+    from Queue import Queue
+except:
+    from queue import Queue
 import sys
 
 
 from es import *
 from transformations import *
-
+from workers import *
 
 APP_NAME = 'pmacct-to-elasticsearch'
 CURRENT_RELEASE = 'v0.3.0'
@@ -27,6 +31,8 @@ EXITCODE_Program = 2
 EXITCODE_ElasticSearch = 3
 
 DEF_CONFIG = {
+    'CONF_DIR': CONF_DIR,
+
     'LogFile': '/var/log/{}-$PluginName.log'.format(APP_NAME),
 
     'ES_URL': 'http://localhost:9200',
@@ -55,14 +61,6 @@ def expand_macros(s):
     ))
     out = out.replace('$Type', CONFIG.get('ES_Type') or 'default')
     return out
-
-def expand_data_macros(s, dic):
-    if "$" in s:
-        res = s
-        for k in dic:
-            res = res.replace("${}".format(k), str(dic[k]))
-        return res
-    return s
 
 # Checks config and logs any errors.
 # Returns: True | False.
@@ -142,7 +140,7 @@ def check_config():
         for tr in CONFIG['Transformations']:
             try:
                 test_transformation(tr)
-            except Exception as e:
+            except P2ESError as e:
                 log(logging.ERROR,
                     'Invalid transformation: {}'.format(str(e)))
                 return False
@@ -290,28 +288,65 @@ def main():
         if not r:
             log(logging.ERROR, 'Error while reading input data from stdin')
             return EXITCODE_Program
-
-    # Preparing for HTTP authentication
-    try:
-        prepare_for_http_auth(CONFIG)
-    except Exception as e:
-        log(logging.ERROR, str(e))
-        return EXITCODE_Program
-
-    # Creating index
-    index_name = datetime.datetime.now().strftime(CONFIG['ES_IndexName'])
-    try:
-        create_index(index_name, CONF_DIR, CONFIG)
-    except Exception as e:
-        log(logging.ERROR, "Error while creating index {}: {}".format(
-            index_name, str(e))
-        )
-        return EXITCODE_Program
     
     # Timestamp for ES indexing (UTC)
 
     ts = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
+    if CONFIG['InputFile']:
+        input_file = ExpandMacro(CONFIG['InputFile'])
+    else:
+        input_file = None
+
     # Read pmacct's JSON output and perform transformations
-    print("Done!")
+
+    READERS_THREAD_CNT = 1
+
+    writer_queue = Queue()
+
+    if args.print_only:
+        thread_class = PrintOnlyWriterThread
+    else:
+        thread_class = ESWriterThread
+
+    try:
+        writer = thread_class(CONFIG, ts, writer_queue, CONFIG['ES_FlushSize'])
+    except P2ESError as e:
+        log(logging.ERROR, "{}".format(str(e)))
+        return EXITCODE_Program
+
+    readers = []
+
+    for thread_idx in range(2):
+        readers.append(
+            JSONReaderThread(
+                thread_idx,
+                CONFIG,
+                writer_queue
+            )
+        )
+
+    for thread in readers + [writer]:
+        thread.daemon = True
+        thread.start()
+
+    ret_code = EXITCODE_OK
+    try:
+        with open(input_file, "r") if input_file else sys.stdin as f:
+            thread_idx = -1
+            for line in f:
+                thread_idx = (thread_idx + 1) % READERS_THREAD_CNT
+                readers[thread_idx].queue.put(line)
+    except P2ESError as e:
+        log(logging.ERROR,
+            "Error while processing input file: {}".format(str(e)))
+        ret_code = EXITCODE_Program
+    finally:
+        for thread in readers + [writer]:
+            thread.done = True
+
+        for thread in readers + [writer]:
+            thread.join(timeout=10)
+
+    return ret_code
 main()

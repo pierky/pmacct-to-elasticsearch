@@ -1,5 +1,7 @@
 import urllib2
 
+from errors import P2ESError
+
 # Sends data to ES.
 # Raises exceptions: yes.
 def send_to_es(CONFIG, index_name, data):
@@ -14,7 +16,7 @@ def send_to_es(CONFIG, index_name, data):
     try:
         http_res = urllib2.urlopen(url, data)
     except Exception as e:
-        raise Exception(
+        raise P2ESError(
             'Error while executing HTTP bulk insert on {} - {}'.format(
                 index_name, str(e)
             )
@@ -25,7 +27,7 @@ def send_to_es(CONFIG, index_name, data):
     http_plaintext = http_res.read()
 
     if(http_res.getcode() != 200):
-        raise Exception(
+        raise P2ESError(
             'Bulk insert on {} failed - '
             'HTTP status code = {} - '
             'Response {}'.format(
@@ -36,7 +38,7 @@ def send_to_es(CONFIG, index_name, data):
     try:
         json_res = json.loads(http_plaintext)
     except Exception as e:
-        raise Exception(
+        raise P2ESError(
             'Error while decoding JSON HTTP response - '
             '{} - '
             'first 100 characters: {}'.format(
@@ -46,7 +48,7 @@ def send_to_es(CONFIG, index_name, data):
         )
 
     if json_res['errors']:
-        raise Exception(
+        raise P2ESError(
             'Bulk insert on {} failed to process '
             'one or more documents'.format(index_name)
         )
@@ -66,7 +68,7 @@ def does_index_exist(index_name, CONFIG):
         if err.code == 404:
             return False
         else:
-            raise Exception(
+            raise P2ESError(
                 'Error while checking if {} index exists: {}'.format(
                     index_name, str(err)
                 )
@@ -87,7 +89,7 @@ def create_index(index_name, CONF_DIR, CONFIG):
         with open(tpl_path, "r") as f:
             tpl = f.read()
     except Exception as e:
-        raise Exception(
+        raise P2ESError(
             'Error while reading index template from file {}: {}'.format(
                 tpl_path, str(e)
             )
@@ -111,7 +113,7 @@ def create_index(index_name, CONF_DIR, CONFIG):
         err += last_err
     else:
         err += "error unknown"
-    raise Exception(err.format(index_name, tpl_path))
+    raise P2ESError(err.format(index_name, tpl_path))
 
 def prepare_for_http_auth(CONFIG):
     if CONFIG['ES_AuthType'] != 'none':
@@ -128,7 +130,7 @@ def prepare_for_http_auth(CONFIG):
         elif CONFIG['ES_AuthType'] == 'digest':
             auth_handler = urllib2.HTTPDigestAuthHandler(pwdman)
         else:
-            raise Exception(
+            raise P2ESError(
                 'Unexpected authentication type: {}'.format(CONFIG['ES_AuthType'])
             )
 
