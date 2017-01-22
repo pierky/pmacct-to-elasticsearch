@@ -10,16 +10,23 @@ from errors import P2ESError
 from es import *
 from transformations import *
 
-class BaseWriterThread(threading.Thread):
+class P2ESThread(threading.Thread):
 
-    def __init__(self, CONFIG, ts, queue, flush_size):
+    def __init__(self, idx, CONFIG, errors_queue):
         threading.Thread.__init__(self)
+        self.idx = idx
         self.CONFIG = CONFIG
+        self.errors_queue = errors_queue
+
+class BaseWriterThread(P2ESThread):
+
+    def __init__(self, idx, CONFIG, errors_queue, ts, queue, flush_size):
+        P2ESThread.__init__(self, idx, CONFIG, errors_queue)
         self.ts = ts
         self.queue = queue
-        self.done = False
         self.es_docs = []
         self.flush_size = flush_size
+        self.done = False
 
     def _flush(self, output):
         raise NotImplementedError()
@@ -37,21 +44,24 @@ class BaseWriterThread(threading.Thread):
 
     def run(self):
         while True:
-            if self.done:
-                print("Writer - Done")
-                self.flush()
-                return
-
+            dic = None
             try:
                 dic = self.queue.get(block=True, timeout=1)
+
+                if dic is None:
+                    self.flush()
+                    return
+
                 dic['@timestamp'] = self.ts
                 self.es_docs.append(dic)
                 if len(self.es_docs) >= self.flush_size:
                     self.flush()
             except Empty:
-                print("Writer - Empty")
                 pass
-        print("Writer - Quitting")
+            except Exception as e:
+                self.errors_queue.put(str(e))
+                if dic is None:
+                    return
 
 class ESWriterThread(BaseWriterThread):
 
@@ -80,32 +90,30 @@ class ESWriterThread(BaseWriterThread):
 class PrintOnlyWriterThread(BaseWriterThread):
 
     def _flush(self, output):
-        raise P2ESError("test")
         print(output)
 
-class BaseReaderThread(threading.Thread):
+class BaseReaderThread(P2ESThread):
 
-    def __init__(self, idx, CONFIG, writer_queue):
+    def __init__(self, idx, CONFIG, errors_queue, writer_queue):
+        P2ESThread.__init__(self, idx, CONFIG, errors_queue)
         threading.Thread.__init__(self)
-        self.idx = idx
-        self.CONFIG = CONFIG
         self.queue = Queue()
         self.writer_queue = writer_queue
-        self.done = False
 
     def run(self):
         while True:
-            if self.done:
-                print("Reader {} - Done".format(self.idx))
-                return
-
+            line = None
             try:
                 line = self.queue.get(block=True, timeout=1)
+                if line is None:
+                    return
                 self.writer_queue.put(self.parse(line))
             except Empty:
-                print("Reader {} - Empty".format(self.idx))
                 pass
-        print("Reader {} - Quitting".format(self.idx))
+            except Exception as e:
+                self.errors_queue.put(str(e))
+                if line is None:
+                    return
 
     @staticmethod
     def expand_data_macros(s, dic):

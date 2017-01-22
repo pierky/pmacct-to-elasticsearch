@@ -9,9 +9,9 @@ from logging.handlers import RotatingFileHandler
 import os.path
 import select
 try:
-    from Queue import Queue
+    from Queue import Queue, Empty
 except:
-    from queue import Queue
+    from queue import Queue, Empty
 import sys
 
 
@@ -300,28 +300,35 @@ def main():
 
     # Read pmacct's JSON output and perform transformations
 
-    READERS_THREAD_CNT = 1
+    READERS_THREAD_CNT = 2
 
     writer_queue = Queue()
+    errors_queue = Queue()
 
     if args.print_only:
-        thread_class = PrintOnlyWriterThread
+        writer_thread_class = PrintOnlyWriterThread
     else:
-        thread_class = ESWriterThread
+        writer_thread_class = ESWriterThread
 
     try:
-        writer = thread_class(CONFIG, ts, writer_queue, CONFIG['ES_FlushSize'])
+        writer = writer_thread_class("writer",
+                                     CONFIG,
+                                     errors_queue,
+                                     ts,
+                                     writer_queue,
+                                     CONFIG['ES_FlushSize'])
     except P2ESError as e:
         log(logging.ERROR, "{}".format(str(e)))
         return EXITCODE_Program
 
     readers = []
 
-    for thread_idx in range(2):
+    for thread_idx in range(READERS_THREAD_CNT):
         readers.append(
             JSONReaderThread(
-                thread_idx,
+                "reader{}".format(thread_idx),
                 CONFIG,
+                errors_queue,
                 writer_queue
             )
         )
@@ -335,6 +342,9 @@ def main():
         with open(input_file, "r") if input_file else sys.stdin as f:
             thread_idx = -1
             for line in f:
+                line = line.strip()
+                if not line:
+                    continue
                 thread_idx = (thread_idx + 1) % READERS_THREAD_CNT
                 readers[thread_idx].queue.put(line)
     except P2ESError as e:
@@ -342,11 +352,24 @@ def main():
             "Error while processing input file: {}".format(str(e)))
         ret_code = EXITCODE_Program
     finally:
-        for thread in readers + [writer]:
-            thread.done = True
+        for thread in readers:
+            thread.queue.put(None)
 
-        for thread in readers + [writer]:
-            thread.join(timeout=10)
+        for thread in readers:
+            thread.join()
+
+        writer.queue.put(None)
+        writer.join(timeout=60)
+
+        while True:
+            try:
+                err = errors_queue.get(block=False)
+                log(logging.ERROR, err)
+            except Empty:
+                break
+
+            if err:
+                ret_code = EXITCODE_Program
 
     return ret_code
 main()
