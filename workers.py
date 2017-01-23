@@ -76,11 +76,11 @@ class ESWriterThread(BaseWriterThread):
             self.CONFIG['ES_IndexName']
         )
         try:
-            create_index(index_name, self.CONFIG["CONF_DIR"], self.CONFIG)
+            create_index(self.index_name, self.CONFIG["CONF_DIR"], self.CONFIG)
         except P2ESError as e:
             raise P2ESError(
                 "Error while creating index {}: {}".format(
-                    index_name, str(e)
+                    self.index_name, str(e)
                 )
             )
 

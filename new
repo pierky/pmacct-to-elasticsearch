@@ -24,12 +24,6 @@ CURRENT_RELEASE = 'v0.3.0'
 
 CONF_DIR = '/etc/p2es'
 
-EXITCODE_OK = 0
-EXITCODE_OneOrMoreErrors = 1
-
-EXITCODE_Program = 2
-EXITCODE_ElasticSearch = 3
-
 DEF_CONFIG = {
     'CONF_DIR': CONF_DIR,
 
@@ -41,6 +35,8 @@ DEF_CONFIG = {
     'ES_AuthType': 'none',
 
     'ES_FlushSize': 5000,
+    
+    'ReaderThreads': 2,
 
     'InputFile': None,
 
@@ -135,6 +131,20 @@ def check_config():
         if CONFIG['ES_FlushSize'] < 0:
             log(logging.ERROR, 'Flush size must be a positive integer')
             return False
+
+    if not 'ReaderThreads' in CONFIG:
+        log(logging.ERROR, 'Reader threads number not provided')
+        return False
+
+    if isinstance(CONFIG['ReaderThreads'], str) and \
+        not CONFIG['ReaderThreads'].isdigit():
+        log(logging.ERROR, 'Reader threads number must be a positive integer')
+        return False
+
+    CONFIG['ReaderThreads'] = int(CONFIG['ReaderThreads'])
+    if CONFIG['ReaderThreads'] <= 0:
+        log(logging.ERROR, 'Reader threads number must be a positive integer')
+        return False
 
     if 'Transformations' in CONFIG:
         for tr in CONFIG['Transformations']:
@@ -233,7 +243,7 @@ def main():
     args = parser.parse_args()
 
     if not setup_logging():
-        return EXITCODE_Program
+        return False
 
     if args.test_condition and args.test_condition_data:
         with open(args.test_condition, "r") as f:
@@ -245,13 +255,13 @@ def main():
                 parse_conditions(c, d)
             )
         )
-        return EXITCODE_OK
+        return True
     else:
         if args.test_condition and not args.test_condition_data or \
             args.test_condition_data and not args.test_condition:
             log(logging.ERROR, "--test-condition and --test-condition-data "
                 "must be used togheter.")
-            return EXITCODE_Program
+            return False
 
     CONFIG["PluginName"] = args.pluginname
 
@@ -265,29 +275,29 @@ def main():
             'Error loading configuration from {}/{}'.format(
                 CONF_DIR, new_cfg_file_name),
             exc_info=True)
-        return EXITCODE_Program
+        return False
 
     CONFIG.update(new_cfg)
 
     if 'LogFile' in CONFIG:
         if not setup_logging(CONFIG['LogFile']):
-            return EXITCODE_Program
+            return False
     else:
         log(logging.ERROR, 'Missing LogFile')
-        return EXITCODE_Program
+        return False
 
     if not check_config():
-        return EXITCODE_Program
+        return False
 
     if args.test_only:
         print('Configuration tested successfully')
-        return EXITCODE_OK
+        return True
     
     if not CONFIG['InputFile']:
         r, w, x = select.select([sys.stdin], [], [], 0)
         if not r:
             log(logging.ERROR, 'Error while reading input data from stdin')
-            return EXITCODE_Program
+            return False
     
     # Timestamp for ES indexing (UTC)
 
@@ -299,8 +309,6 @@ def main():
         input_file = None
 
     # Read pmacct's JSON output and perform transformations
-
-    READERS_THREAD_CNT = 2
 
     writer_queue = Queue()
     errors_queue = Queue()
@@ -319,25 +327,29 @@ def main():
                                      CONFIG['ES_FlushSize'])
     except P2ESError as e:
         log(logging.ERROR, "{}".format(str(e)))
-        return EXITCODE_Program
+        return False
 
     readers = []
 
-    for thread_idx in range(READERS_THREAD_CNT):
-        readers.append(
-            JSONReaderThread(
-                "reader{}".format(thread_idx),
-                CONFIG,
-                errors_queue,
-                writer_queue
+    for thread_idx in range(CONFIG['ReaderThreads']):
+        try:
+            readers.append(
+                JSONReaderThread(
+                    "reader{}".format(thread_idx),
+                    CONFIG,
+                    errors_queue,
+                    writer_queue
+                )
             )
-        )
+        except P2ESError as e:
+            log(logging.ERROR, str(e))
+            return False
 
     for thread in readers + [writer]:
         thread.daemon = True
         thread.start()
 
-    ret_code = EXITCODE_OK
+    ret_code = True
     try:
         with open(input_file, "r") if input_file else sys.stdin as f:
             thread_idx = -1
@@ -345,12 +357,12 @@ def main():
                 line = line.strip()
                 if not line:
                     continue
-                thread_idx = (thread_idx + 1) % READERS_THREAD_CNT
+                thread_idx = (thread_idx + 1) % len(readers)
                 readers[thread_idx].queue.put(line)
     except P2ESError as e:
         log(logging.ERROR,
             "Error while processing input file: {}".format(str(e)))
-        ret_code = EXITCODE_Program
+        ret_code = False
     finally:
         for thread in readers:
             thread.queue.put(None)
@@ -359,17 +371,16 @@ def main():
             thread.join()
 
         writer.queue.put(None)
-        writer.join(timeout=60)
+        writer.join()
 
         while True:
             try:
                 err = errors_queue.get(block=False)
+                ret_code = False
                 log(logging.ERROR, err)
             except Empty:
                 break
 
-            if err:
-                ret_code = EXITCODE_Program
-
     return ret_code
+
 main()

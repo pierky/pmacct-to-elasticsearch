@@ -143,6 +143,10 @@ These files are in JSON format and contain the following keys:
 
    **Default**: 5000 lines
 
+- **ReaderThreads** [optional]: how many threads should be used to process input data.
+
+   **Default**: 2
+
 - **InputFile** [optional]: used mainly when configuring pmacct print plugins.
    File used by pmacct-to-elasticsearch to read input data from (it
    should coincide with pmacct's print plugin output file).
