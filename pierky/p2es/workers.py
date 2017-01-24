@@ -9,6 +9,7 @@ import threading
 from errors import P2ESError
 from es import *
 from transformations import *
+import sys
 
 class P2ESThread(threading.Thread):
 
@@ -175,3 +176,86 @@ class JSONReaderThread(BaseReaderThread):
 
     def _parse(self, line):
         return json.loads(line)
+    
+class CSVReaderThread(BaseReaderThread):
+
+    def set_fields(self, headers):
+        self.headers = headers
+
+    def _parse(self, line):
+        fields = line.split(",")
+        dic = {}
+        for i in range(len(self.headers)):
+            field_name = self.headers[i].lower()
+            field_val = fields[i]
+            dic[field_name] = field_val
+        return dic
+
+class BaseReader(object):
+
+    HEADER = False
+
+    def __init__(self, CONFIG, input_file, errors_queue, writer_queue):
+        self.CONFIG = CONFIG
+
+        self.input_file = input_file
+    
+        self.readers = []
+
+        for thread_idx in range(CONFIG['ReaderThreads']):
+            self.readers.append(
+                self.READER_THREAD_CLASS(
+                    "reader{}".format(thread_idx),
+                    CONFIG,
+                    errors_queue,
+                    writer_queue
+                )
+            )
+
+    def process_first_line(self, line):
+        pass
+
+    def start_threads(self):
+        for thread in self.readers:
+            thread.daemon = True
+            thread.start()
+
+    def process_input(self):
+        self.start_threads()
+
+        with open(self.input_file, "r") if self.input_file else sys.stdin as f:
+            thread_idx = -1
+            first_line_processed = False
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+
+                if not first_line_processed and self.HEADER:
+                    self.process_first_line(line)
+                    first_line_processed = True
+                    continue
+
+                thread_idx = (thread_idx + 1) % len(self.readers)
+                self.readers[thread_idx].queue.put(line)
+
+    def finalize(self):
+        for thread in self.readers:
+            thread.queue.put(None)
+
+        for thread in self.readers:
+            thread.join()
+
+class JSONReader(BaseReader):
+
+    READER_THREAD_CLASS = JSONReaderThread
+
+class CSVReader(BaseReader):
+
+    HEADER = True
+    READER_THREAD_CLASS = CSVReaderThread
+
+    def process_first_line(self, line):
+        fields = line.split(",")
+        for thread in self.readers:
+            thread.set_fields(fields)

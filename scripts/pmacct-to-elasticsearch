@@ -38,6 +38,7 @@ DEF_CONFIG = {
     'ES_FlushSize': 5000,
     
     'ReaderThreads': 2,
+    'InputFormat': 'json',
 
     'InputFile': None,
 
@@ -145,6 +146,19 @@ def check_config():
     CONFIG['ReaderThreads'] = int(CONFIG['ReaderThreads'])
     if CONFIG['ReaderThreads'] <= 0:
         log(logging.ERROR, 'Reader threads number must be a positive integer')
+        return False
+
+    if not 'InputFormat' in CONFIG:
+        log(logging.ERROR, 'Input format not provided')
+        return False
+
+    valid_input_formats = ('json', 'csv')
+    if CONFIG['InputFormat'] not in valid_input_formats:
+        log(logging.ERROR,
+            'Unknown input format "{}": must be one of {}'.format(
+                CONFIG['InputFormat'], ", ".join(valid_input_formats)
+            )
+        )
         return False
 
     if 'Transformations' in CONFIG:
@@ -308,12 +322,7 @@ def main():
 
     ts = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    if CONFIG['InputFile']:
-        input_file = expand_macros(CONFIG['InputFile'])
-    else:
-        input_file = None
-
-    # Read pmacct's JSON output and perform transformations
+    # Read pmacct's output and perform transformations
 
     writer_queue = Queue()
     errors_queue = Queue()
@@ -330,61 +339,48 @@ def main():
                                      ts,
                                      writer_queue,
                                      CONFIG['ES_FlushSize'])
+        writer.daemon = True
+        writer.start()
     except P2ESError as e:
-        log(logging.ERROR, "{}".format(str(e)))
+        log(logging.ERROR, str(e))
         return False
 
-    readers = []
+    try:
+        if CONFIG['InputFormat'] == 'json':
+            reader_class = JSONReader
+        elif CONFIG['InputFormat'] == 'csv':
+            reader_class = CSVReader
 
-    for thread_idx in range(CONFIG['ReaderThreads']):
-        try:
-            readers.append(
-                JSONReaderThread(
-                    "reader{}".format(thread_idx),
-                    CONFIG,
-                    errors_queue,
-                    writer_queue
-                )
-            )
-        except P2ESError as e:
-            log(logging.ERROR, str(e))
-            return False
-
-    for thread in readers + [writer]:
-        thread.daemon = True
-        thread.start()
+        reader = reader_class(
+            CONFIG,
+            expand_macros(CONFIG['InputFile']) if CONFIG['InputFile'] else None,
+            errors_queue,
+            writer_queue
+        )
+    except P2ESError as e:
+        log(logging.ERROR, str(e))
+        return False
 
     ret_code = True
     try:
-        with open(input_file, "r") if input_file else sys.stdin as f:
-            thread_idx = -1
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                thread_idx = (thread_idx + 1) % len(readers)
-                readers[thread_idx].queue.put(line)
-    except P2ESError as e:
+        reader.process_input()
+    except Exception as e:
         log(logging.ERROR,
-            "Error while processing input file: {}".format(str(e)))
+            "Error while processing input: {}".format(str(e)))
         ret_code = False
     finally:
-        for thread in readers:
-            thread.queue.put(None)
+        reader.finalize()
 
-        for thread in readers:
-            thread.join()
+    writer.queue.put(None)
+    writer.join()
 
-        writer.queue.put(None)
-        writer.join()
-
-        while True:
-            try:
-                err = errors_queue.get(block=False)
-                ret_code = False
-                log(logging.ERROR, err)
-            except Empty:
-                break
+    while True:
+        try:
+            err = errors_queue.get(block=False)
+            ret_code = False
+            log(logging.ERROR, err)
+        except Empty:
+            break
 
     return ret_code
 
