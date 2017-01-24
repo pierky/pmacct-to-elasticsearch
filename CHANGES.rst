@@ -1,8 +1,8 @@
 Changelog
 =========
 
-0.3.0
------
+0.3.0a1
+-------
 
 - Multithreading support.
 
