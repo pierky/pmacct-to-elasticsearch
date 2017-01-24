@@ -3,8 +3,20 @@
 # if you change the following CONF_DIR value you must
 # change it in pmacct-to-elasticsearch too.
 CONF_DIR=/etc/p2es
-
 BIN_DIR=/usr/local/bin
+
+if [ ! -e "$BIN_DIR/pmacct-to-elasticsearch" ]; then
+	echo "ERROR: pmacct-to-elasticsearch not found in $BIN_DIR."
+	echo ""
+	echo "If it is not installed, please install it using "
+	echo ""
+	echo "  pip install pmacct-to-elasticsearch"
+	echo ""
+	echo "otherwise please consider editing this installation script"
+	echo "to set the BIN_DIR variable to the directory where "
+	echo "pmacct-to-elasticsearch is currently installed."
+	exit 1
+fi
 
 FORCE="no"
 
@@ -17,9 +29,8 @@ done
 echo ""
 echo "pmacct-to-elasticsearch installation script"
 echo ""
-echo "The following directories will be used for the installation:"
+echo "The following directory will be used for the installation:"
 echo " - $CONF_DIR: configuration files"
-echo " - $BIN_DIR: the main pmacct-to-elasticsearch program"
 echo ""
 echo "With -F option, Replace all files without confirmation"
 echo ""
@@ -106,20 +117,6 @@ if [ "$PROCEED" == "yes" ]; then
 	fi
 else
 	echo "Skipped"
-fi
-
-# -----------------------------------------------------------
-
-echo -n "Copying pmacct-to-elasticsearch program to $BIN_DIR... "
-
-cp pmacct-to-elasticsearch $BIN_DIR/
-
-if [ $? -ne 0 ]; then
-	echo "ERROR - exit code $?"
-	exit 1
-else
-	echo "OK"
-	chmod u+x $BIN_DIR/pmacct-to-elasticsearch
 fi
 
 # -----------------------------------------------------------

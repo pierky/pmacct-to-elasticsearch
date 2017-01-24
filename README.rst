@@ -12,29 +12,36 @@ pmacct-to-elasticsearch
 
 Optionally, some **data transformations** can be configured, to allow pmacct-to-elasticsearch to **add or remove fields** to/from the output documents that are sent to ElasticSearch for indexing. These additional fields may be useful to enhance graphs and reports legibility, or to add a further level of aggregation or filtering.
 
-## Installation
+Installation
+------------
 
-Clone the repository and run the ./install script:
+Install the program using pip:
+
+        pip install pmacct-to-elasticsearch
+        
+Then clone the repository and run the ./install script to setup your system:
 
       # cd /usr/local/src/
       # git clone https://github.com/pierky/pmacct-to-elasticsearch.git
       # cd pmacct-to-elasticsearch/
       # ./install
   
-## Configuration
+Configuration
+-------------
 
 Please refer to the [CONFIGURATION.md](CONFIGURATION.md) file. The [TRANSFORMATIONS.md](TRANSFORMATIONS.md) file contains details about data transformations configuration.
 
 A simple tutorial on pmacct integration with ElasticSearch/Kibana using pmacct-to-elasticsearch can be found at http://blog.pierky.com/integration-of-pmacct-with-elasticsearch-and-kibana.
 
-## Future work
+Future work
+-----------
 
-- Improve performances by introducing multi-thread processing of input data.
 - Add support of more pmacct output formats (CSV, Apache Avro, ...).
 - Read input from stdin pipes too.
 
-## Author
+Author
+------
 
-Pier Carlo Chiodi - http://pierky.com/aboutme
+Pier Carlo Chiodi - https://pierky.com/
 
-Blog: http://blog.pierky.com Twitter: [@pierky](http://twitter.com/pierky)
+Blog: https://blog.pierky.com/ Twitter: `@pierky <https://twitter.com/pierky>`_

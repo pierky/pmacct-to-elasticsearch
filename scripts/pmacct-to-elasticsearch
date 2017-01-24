@@ -17,10 +17,11 @@ import sys
 
 from pierky.p2es.es import *
 from pierky.p2es.transformations import *
+from pierky.p2es.version import __version__ 
 from pierky.p2es.workers import *
 
 APP_NAME = 'pmacct-to-elasticsearch'
-CURRENT_RELEASE = 'v0.3.0'
+CURRENT_RELEASE = 'v{}'.format(__version__)
 
 CONF_DIR = '/etc/p2es'
 
@@ -212,7 +213,11 @@ def log(lev, msg, exc_info=False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="pmacct-to-elasticsearch"
+        description="pmacct-to-elasticsearch {}: a tool to read "
+                    "pmacct's output and to store it into "
+                    "ElasticSearch.".format(CURRENT_RELEASE),
+        epilog="Copyright (c) {} - Pier Carlo Chiodi - "
+               "https://pierky.com".format(2017)
     )
     parser.add_argument(
         "pluginname",
