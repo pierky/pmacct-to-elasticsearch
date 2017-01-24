@@ -3,7 +3,8 @@ pmacct-to-elasticsearch
 
 **pmacct-to-elasticsearch** is a python script designed to read JSON output from **pmacct** daemons, to process it and to store it into **ElasticSearch**. It works with both *memory* and *print* plugins and, optionally, it can perform **manipulations on data** (such as to add fields on the basis of other values).
 
-<p align="center"><img src="https://raw.github.com/pierky/pmacct-to-elasticsearch/master/img/data_flow.png"></p>
+.. image:: img/data_flow.png
+        :align: center
 
 1. **pmacct daemons** collect IP accounting data and process them with their plugins;
 2. data are stored into **in-memory-tables** (*memory* plugins) or **JSON files** (*print* plugins);
@@ -17,19 +18,26 @@ Installation
 
 Install the program using pip:
 
-        pip install pmacct-to-elasticsearch
+.. code:: bash
+
+  pip install pmacct-to-elasticsearch
         
 Then clone the repository and run the ./install script to setup your system:
 
-      # cd /usr/local/src/
-      # git clone https://github.com/pierky/pmacct-to-elasticsearch.git
-      # cd pmacct-to-elasticsearch/
-      # ./install
+.. code:: bash
+
+  cd /usr/local/src/
+  git clone https://github.com/pierky/pmacct-to-elasticsearch.git
+  cd pmacct-to-elasticsearch/
+  ./install
   
 Configuration
 -------------
 
-Please refer to the [CONFIGURATION.md](CONFIGURATION.md) file. The [TRANSFORMATIONS.md](TRANSFORMATIONS.md) file contains details about data transformations configuration.
+Please refer to the `CONFIGURATION.md`_ file. The `TRANSFORMATIONS.md`_ file contains details about data transformations configuration.
+
+.. _CONFIGURATION.md: CONFIGURATION.md
+.. _TRANSFORMATIONS.md: TRANSFORMATIONS.md
 
 A simple tutorial on pmacct integration with ElasticSearch/Kibana using pmacct-to-elasticsearch can be found at http://blog.pierky.com/integration-of-pmacct-with-elasticsearch-and-kibana.
 
