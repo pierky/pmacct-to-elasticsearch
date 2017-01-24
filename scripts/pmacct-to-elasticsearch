@@ -15,9 +15,9 @@ except:
 import sys
 
 
-from es import *
-from transformations import *
-from workers import *
+from pierky.p2es.es import *
+from pierky.p2es.transformations import *
+from pierky.p2es.workers import *
 
 APP_NAME = 'pmacct-to-elasticsearch'
 CURRENT_RELEASE = 'v0.3.0'
