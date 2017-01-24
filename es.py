@@ -1,3 +1,4 @@
+import json
 import urllib2
 
 from errors import P2ESError
@@ -76,14 +77,14 @@ def does_index_exist(index_name, CONFIG):
 
 # Creates index 'index_name' using template given in config.
 # Raises exceptions: yes.
-def create_index(index_name, CONF_DIR, CONFIG):
+def create_index(index_name, CONFIG):
 
     # index already exists?
     if does_index_exist(index_name, CONFIG):
         return
 
     # index does not exist, creating it
-    tpl_path = '{}/{}'.format(CONF_DIR, CONFIG['ES_IndexTemplateFileName'])
+    tpl_path = '{}/{}'.format(CONFIG['CONF_DIR'], CONFIG['ES_IndexTemplateFileName'])
 
     try:
         with open(tpl_path, "r") as f:

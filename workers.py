@@ -39,8 +39,12 @@ class BaseWriterThread(P2ESThread):
         return out
 
     def flush(self):
-        self._flush(self._format_output())
-        self.es_docs = []
+        if self.es_docs:
+	    try:
+	        output = self._format_output()
+	        self._flush(output)
+            finally:
+                self.es_docs = []
 
     def run(self):
         while True:
@@ -49,8 +53,9 @@ class BaseWriterThread(P2ESThread):
                 dic = self.queue.get(block=True, timeout=1)
 
                 if dic is None:
-                    self.flush()
-                    return
+                    #self.flush()
+		    break
+                    #return
 
                 dic['@timestamp'] = self.ts
                 self.es_docs.append(dic)
@@ -60,8 +65,7 @@ class BaseWriterThread(P2ESThread):
                 pass
             except Exception as e:
                 self.errors_queue.put(str(e))
-                if dic is None:
-                    return
+        self.flush()
 
 class ESWriterThread(BaseWriterThread):
 
@@ -76,7 +80,7 @@ class ESWriterThread(BaseWriterThread):
             self.CONFIG['ES_IndexName']
         )
         try:
-            create_index(self.index_name, self.CONFIG["CONF_DIR"], self.CONFIG)
+            create_index(self.index_name, self.CONFIG)
         except P2ESError as e:
             raise P2ESError(
                 "Error while creating index {}: {}".format(

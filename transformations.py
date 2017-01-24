@@ -167,11 +167,11 @@ def test_transformation(tr):
             if 'LookupTableFile' in action:
                 try:
                     with open(action['LookupTableFile'], "r") as f:
-                        action['LookupTable'] = json.load(f.read())
-                except:
+                        action['LookupTable'] = json.load(f)
+                except Exception as e:
 		    raise P2ESError(
-                        '{}, error loading lookup table from {}'.format(
-                            tr_det, action['LookupTableFile']
+                        '{}, error loading lookup table from {}: {}'.format(
+                            tr_det, action['LookupTableFile'], str(e)
                         )
                     )
 

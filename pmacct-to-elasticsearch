@@ -304,7 +304,7 @@ def main():
     ts = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
     if CONFIG['InputFile']:
-        input_file = ExpandMacro(CONFIG['InputFile'])
+        input_file = expand_macros(CONFIG['InputFile'])
     else:
         input_file = None
 
