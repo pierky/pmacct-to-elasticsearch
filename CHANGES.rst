@@ -1,6 +1,13 @@
 Changelog
 =========
 
+0.3.0a3
+-------
+
+- More command line arguments.
+
+  The command line arguments under the *Configuration options* group can be used to override settings done on the plugin configuration file.
+
 0.3.0a2
 -------
 
