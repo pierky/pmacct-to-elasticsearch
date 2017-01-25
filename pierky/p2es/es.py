@@ -74,6 +74,13 @@ def does_index_exist(index_name, CONFIG):
                     index_name, str(err)
                 )
             )
+    except Exception as err:
+        raise P2ESError(
+            'Error while checking if {} index exists: {}'.format(
+                index_name, str(err)
+            )
+        )
+
 
 # Creates index 'index_name' using template given in config.
 # Raises exceptions: yes.
@@ -106,8 +113,11 @@ def create_index(index_name, CONFIG):
         last_err = str(e)
         pass
 
-    if does_index_exist(index_name, CONFIG):
-        return
+    try:
+        if does_index_exist(index_name, CONFIG):
+            return
+    except:
+        pass
 
     err = "An error occurred while creating index {} from template {}: "
     if last_err:
