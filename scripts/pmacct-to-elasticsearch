@@ -15,10 +15,11 @@ except:
 import sys
 
 
-from pierky.p2es.es import *
-from pierky.p2es.transformations import *
+from pierky.p2es.errors import P2ESError
+from pierky.p2es.readers import JSONReader, CSVReader
+from pierky.p2es.transformations import test_transformation
 from pierky.p2es.version import __version__ 
-from pierky.p2es.workers import *
+from pierky.p2es.writers import PrintOnlyWriterThread, ESWriterThread
 
 APP_NAME = 'pmacct-to-elasticsearch'
 CURRENT_RELEASE = 'v{}'.format(__version__)
@@ -148,6 +149,9 @@ def check_config():
         log(logging.ERROR, 'Reader threads number must be a positive integer')
         return False
 
+    if 'InputFile' in CONFIG and CONFIG['InputFile'] == '-':
+        CONFIG['InputFile'] = None
+
     if not 'InputFormat' in CONFIG:
         log(logging.ERROR, 'Input format not provided')
         return False
@@ -226,6 +230,8 @@ def log(lev, msg, exc_info=False):
     logger.log(lev, msg, exc_info=exc_info)
 
 def main():
+    global CONF_DIR
+
     parser = argparse.ArgumentParser(
         description="pmacct-to-elasticsearch {}: a tool to read "
                     "pmacct's output and to store it into "
@@ -248,18 +254,116 @@ def main():
              "(does not send data to ElasticSearch).",
         action="store_true",
         dest="test_only")
-    parser.add_argument(
+    group = parser.add_argument_group(
+        title="Configuration options",
+        description="These arguments override settings "
+                    "provided in the plugin configuration "
+                    "file. See CONFIGURATION.md for more details."
+    )
+    group.add_argument(
+        "--config-dir",
+        help="Directory where configuration files and "
+             "ElasticSearch templates are stored.",
+        default=CONF_DIR,
+        metavar="DIR",
+        dest="config_dir")
+    group.add_argument(
+        "--log-file",
+        help="Path to the log file used to log messages. "
+             "Overrides 'LogFile' configuration setting.",
+        metavar="FILE",
+        dest="log_file")
+    group.add_argument(
+        "--es-url",
+        help="ElasticSearch URL. "
+             "Overrides 'ES_URL' configuration setting.",
+        metavar="URL",
+        dest="es_url")
+    group.add_argument(
+        "--es-indexname",
+        help="ElasticSearch index name. "
+             "Overrides 'ES_IndexName' configuration setting.",
+        metavar="NAME",
+        dest="es_indexname")
+    group.add_argument(
+        "--es-type",
+        help="ElasticSearch documents _type. "
+             "Overrides 'ES_Type' configuration setting.",
+        metavar="TYPE",
+        dest="es_type")
+    group.add_argument(
+        "--es-authtype",
+        help="ElasticSearch authentication method. "
+             "Overrides 'ES_AuthType' configuration setting.",
+        choices=['none', 'basic', 'digest'],
+        dest="es_authtype")
+    group.add_argument(
+        "--es-username",
+        help="ElasticSearch username. "
+             "Overrides 'ES_UserName' configuration setting.",
+        metavar="USER",
+        dest="es_username")
+    group.add_argument(
+        "--es-password",
+        help="ElasticSearch password. "
+             "Overrides 'ES_Password' configuration setting.",
+        metavar="PASS",
+        dest="es_password")
+    group.add_argument(
+        "--es-index-template-file-name",
+        help="Name of the file containing the template to be used "
+             "when creating a new index. The file must be in the "
+             "CONF_DIR directory. "
+             "Overrides 'ES_IndexTemplateFileName' configuration setting.",
+        metavar="FILE",
+        dest="es_templatefilename")
+    group.add_argument(
+        "--es-flushsize",
+        help="How often (in terms of documents) to flush data to "
+             "ElasticSearch BULK API. "
+             "Overrides 'ES_FlushSize' configuration setting.",
+        type=int,
+        metavar="NUM",
+        dest="es_flushsize")
+    group.add_argument(
+        "--reader-threads",
+        help="How many threads should be used to process pmacct output. "
+             "Overrides 'ReaderThreads' configuration setting.",
+        type=int,
+        metavar="NUM",
+        dest="readerthreads")
+    group.add_argument(
+        "--input-file",
+        help="Path to the file produced by pmacct. To read from stdin, "
+             "use '-'. "
+             "Overrides 'InputFile' configuration setting.",
+        metavar="FILE",
+        dest="input_file")
+    group.add_argument(
+        "--input-format",
+        help="Format of the file produced by pmacct. "
+             "Overrides 'InputFile' configuration setting.",
+        choices=["json", "csv"],
+        dest="input_format")
+    group = parser.add_argument_group(
+        title="Transformations testing"
+    )
+    group.add_argument(
         "--test-condition",
         help="Test conditions given in FILE against --test-condition-data.",
         metavar="FILE",
         dest="test_condition")
-    parser.add_argument(
+    group.add_argument(
         "--test-condition-data",
         help="Data used to test condition given in --test-condition.",
         metavar="FILE",
         dest="test_condition_data")
 
     args = parser.parse_args()
+
+    if args.config_dir:
+        CONF_DIR = args.config_dir
+        CONFIG['CONF_DIR'] = args.config_dir
 
     if not setup_logging():
         return False
@@ -297,6 +401,19 @@ def main():
         return False
 
     CONFIG.update(new_cfg)
+
+    # Command line arguments have higher priority
+    for pair in [('log_file', 'LogFile'), ('es_url', 'ES_URL'),
+                 ('es_indexname', 'ES_IndexName'), ('es_type', 'ES_Type'),
+                 ('es_type', 'ES_Type'), ('es_authtype', 'ES_AuthType'),
+                 ('es_username', 'ES_UserName'), ('es_password', 'ES_Password'),
+                 ('es_templatefilename', 'ES_IndexTemplateFileName'),
+                 ('es_flushsize', 'ES_FlushSize'), ('readerthreads', 'ReaderThreads'),
+                 ('input_file', 'InputFile'), ('input_format', 'InputFormat')]:
+        assert pair[0] in vars(args)
+        if pair[0] in vars(args):
+            if vars(args)[pair[0]]:
+                CONFIG[pair[1]] = vars(args)[pair[0]]
 
     if 'LogFile' in CONFIG:
         if not setup_logging(CONFIG['LogFile']):
