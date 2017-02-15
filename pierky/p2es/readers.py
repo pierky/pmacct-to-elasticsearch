@@ -51,7 +51,7 @@ class BaseReaderThread(P2ESThread):
                 dic[action['Name']] = new_val
 
             elif action_type == 'AddFieldLookup':
-                if action['LookupFieldName'] not in dic:
+                if action['LookupFieldName'] in dic:
                     new_val = None
 
                     if str(dic[action['LookupFieldName']]) in action['LookupTable']:
