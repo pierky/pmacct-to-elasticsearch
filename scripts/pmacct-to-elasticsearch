@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+# This code is Copyright 2014-2017 by Pier Carlo Chiodi.
+# See full license in LICENSE file.
+
 import argparse
 from copy import deepcopy
 import datetime
@@ -236,7 +239,7 @@ def main():
         description="pmacct-to-elasticsearch {}: a tool to read "
                     "pmacct's output and to store it into "
                     "ElasticSearch.".format(CURRENT_RELEASE),
-        epilog="Copyright (c) {} - Pier Carlo Chiodi - "
+        epilog="Copyright (c) 2014-{} - Pier Carlo Chiodi - "
                "https://pierky.com".format(2017)
     )
     parser.add_argument(

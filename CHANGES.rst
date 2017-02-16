@@ -1,6 +1,11 @@
 Changelog
 =========
 
+0.3.0a4
+-------
+
+- Fix an issue with transformations.
+
 0.3.0a3
 -------
 
