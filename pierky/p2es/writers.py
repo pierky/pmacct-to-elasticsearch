@@ -66,9 +66,6 @@ class ESWriterThread(BaseWriterThread):
     def __init__(self, *args, **kwargs):
         BaseWriterThread.__init__(self, *args, **kwargs)
 
-        # Preparing for HTTP authentication
-        prepare_for_http_auth(self.CONFIG)
-
         # Creating index
         self.index_name = datetime.datetime.now().strftime(
             self.CONFIG['ES_IndexName']

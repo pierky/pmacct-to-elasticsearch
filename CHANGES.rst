@@ -1,6 +1,15 @@
 Changelog
 =========
 
+0.3.0a5
+-------
+
+- Fix issue with index creation on ElasticSearch 5.x.
+
+  Thanks to Kristoffer Olsson and Daniel Lindberg for reporting this and for their extensive support.
+
+- Improved template for index creation.
+
 0.3.0a4
 -------
 

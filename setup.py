@@ -53,6 +53,7 @@ setup(
     maintainer_email="pierky@pierky.com",
 
     install_requires=[
+        "requests"
     ],
 
     scripts=["scripts/pmacct-to-elasticsearch"],
