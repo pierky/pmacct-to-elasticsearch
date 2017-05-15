@@ -1,8 +1,20 @@
 Changelog
 =========
 
-0.3.0a5
--------
+0.3.0
+-----
+
+- New: **CSV** output support.
+
+  The ``InputFormat`` option in the plugin configuration file can be used to instruct pmacct-to-elasticsearch to parse CSV output from pmacct.
+
+- New: **Multithreading** support.
+
+  The ``ReaderThreads`` option in the plugin configuration file sets the number of threads used to process pmacct's output.
+
+- New: More command line arguments.
+
+  The command line arguments under the *Configuration options* group can be used to override settings done on the plugin configuration file.
 
 - Fix issue with index creation on ElasticSearch 5.x.
 
@@ -10,28 +22,14 @@ Changelog
 
 - Improved template for index creation.
 
-0.3.0a4
--------
-
 - Fix an issue with transformations.
 
-0.3.0a3
--------
+0.2.0
+-----
 
-- More command line arguments.
+- New feature: HTTP Authentication support for ES API.
 
-  The command line arguments under the *Configuration options* group can be used to override settings done on the plugin configuration file.
+0.1.0
+-----
 
-0.3.0a2
--------
-
-- CSV output support.
-
-  The ``InputFormat`` option in the plugin configuration file can be used to instruct pmacct-to-elasticsearch to parse CSV output from pmacct.
-
-0.3.0a1
--------
-
-- Multithreading support.
-
-  The ``ReaderThreads`` option in the plugin configuration file sets the number of threads used to process pmacct's output.
+First release.
