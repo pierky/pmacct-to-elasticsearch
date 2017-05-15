@@ -2,7 +2,7 @@
 
 ## How it works
 
-pmacct-to-elasticsearch reads pmacct JSON output and sends it to ElasticSearch.
+pmacct-to-elasticsearch reads pmacct output and sends it to ElasticSearch.
 
 It works properly with two kinds of pmacct plugins: "memory" and "print".
 The former, "memory", needs data to be passed to pmacct-to-elasticsearch's
@@ -143,10 +143,18 @@ These files are in JSON format and contain the following keys:
 
    **Default**: 5000 lines
 
+- **ReaderThreads** [optional]: how many threads should be used to process input data.
+
+   **Default**: 2
+
 - **InputFile** [optional]: used mainly when configuring pmacct print plugins.
    File used by pmacct-to-elasticsearch to read input data from (it
    should coincide with pmacct's print plugin output file).
    If omitted pmacct-to-elasticsearch will read data from stdin.
+
+- **InputFormat** [optional]: the input data format. Can be 'json' or 'csv'.
+
+   **Default**: "json"
 
 - **Transformations** [optional]: the transformation matrix used to add new
    fields to the output document sent to ElasticSearch for indexing.

@@ -1,0 +1,507 @@
+#!/usr/bin/env python
+
+# This code is Copyright 2014-2017 by Pier Carlo Chiodi.
+# See full license in LICENSE file.
+
+import argparse
+from copy import deepcopy
+import datetime
+import json
+import logging
+from logging.handlers import RotatingFileHandler
+import os.path
+import select
+try:
+    from Queue import Queue, Empty
+except:
+    from queue import Queue, Empty
+import sys
+
+
+from pierky.p2es.errors import P2ESError
+from pierky.p2es.readers import JSONReader, CSVReader
+from pierky.p2es.transformations import test_transformation
+from pierky.p2es.version import __version__ 
+from pierky.p2es.writers import PrintOnlyWriterThread, ESWriterThread
+
+APP_NAME = 'pmacct-to-elasticsearch'
+CURRENT_RELEASE = 'v{}'.format(__version__)
+
+CONF_DIR = '/etc/p2es'
+
+DEF_CONFIG = {
+    'CONF_DIR': CONF_DIR,
+
+    'LogFile': '/var/log/{}-$PluginName.log'.format(APP_NAME),
+
+    'ES_URL': 'http://localhost:9200',
+    'ES_IndexName': '',
+    'ES_Type': '',
+    'ES_AuthType': 'none',
+
+    'ES_FlushSize': 5000,
+    
+    'ReaderThreads': 2,
+    'InputFormat': 'json',
+
+    'InputFile': None,
+
+    'Transformations': []
+}
+
+CONFIG = DEF_CONFIG.copy()
+
+
+def expand_macros(s):
+    if s is None:
+        return None
+    
+    out = deepcopy(s)
+    out = out.replace('$PluginName', CONFIG.get('PluginName') or 'default')
+    out = out.replace('$IndexName', datetime.datetime.now().strftime(
+        CONFIG.get('ES_IndexName') or 'default'
+    ))
+    out = out.replace('$Type', CONFIG.get('ES_Type') or 'default')
+    return out
+
+# Checks config and logs any errors.
+# Returns: True | False.
+# Raises exceptions: no
+def check_config():
+    if not CONFIG['ES_IndexName']:
+        log(logging.ERROR, 'ElasticSearch index name not provided')
+        return False
+
+    if not CONFIG['ES_Type']:
+        log(logging.ERROR, 'ElasticSearch type not provided')
+        return False
+
+    if not CONFIG['ES_URL']:
+        log(logging.ERROR, 'ElasticSearch URL not provided')
+        return False
+
+    if not 'ES_IndexTemplateFileName' in CONFIG:
+        CONFIG['ES_IndexTemplateFileName'] = 'new-index-template.json'
+    else:
+        index_tpl_path = '{}/{}'.format(
+            CONF_DIR, CONFIG['ES_IndexTemplateFileName']
+        )
+
+        if not os.path.isfile(index_tpl_path):
+            log(logging.ERROR,
+                'Can\'t find index template file {}'.format(index_tpl_path))
+            return False
+        else:
+            with open(index_tpl_path, "r") as f:
+                try:
+                    index_tpl = json.load(f)
+                except Exception as e:
+                    log(logging.ERROR,
+                        'Index template from {} is not '
+                        'in valid JSON format: {}'.format(
+                            index_tpl_path, str(e)
+                        ),
+                        exc_info=True)
+                    return False
+
+    if CONFIG['ES_URL'].endswith('/'):
+        CONFIG['ES_URL'] = CONFIG['ES_URL'][:-1]
+
+    if CONFIG['ES_AuthType']:
+        if not CONFIG['ES_AuthType'] in ('none', 'basic', 'digest'):
+            log(logging.ERROR,
+                'Authentication type must be "none" (default), '
+                '"basic" or "digest"')
+            return False
+
+    if CONFIG['ES_AuthType'] in ('basic', 'digest'):
+        if not CONFIG['ES_UserName']:
+            log(logging.ERROR,
+                'Authentication required but username not provided')
+            return False
+
+        if not CONFIG['ES_Password']:
+            log(logging.ERROR, 'Authentication required but password not provided')
+            return False
+
+    if not 'ES_FlushSize' in CONFIG:
+        log(logging.ERROR, 'Flush size not provided')
+        return False
+    else:
+        try:
+            CONFIG['ES_FlushSize'] = int(CONFIG['ES_FlushSize'])
+        except:
+            log(logging.ERROR, 'Flush size must be a positive integer')
+            return False
+
+        if CONFIG['ES_FlushSize'] < 0:
+            log(logging.ERROR, 'Flush size must be a positive integer')
+            return False
+
+    if not 'ReaderThreads' in CONFIG:
+        log(logging.ERROR, 'Reader threads number not provided')
+        return False
+
+    if isinstance(CONFIG['ReaderThreads'], str) and \
+        not CONFIG['ReaderThreads'].isdigit():
+        log(logging.ERROR, 'Reader threads number must be a positive integer')
+        return False
+
+    CONFIG['ReaderThreads'] = int(CONFIG['ReaderThreads'])
+    if CONFIG['ReaderThreads'] <= 0:
+        log(logging.ERROR, 'Reader threads number must be a positive integer')
+        return False
+
+    if 'InputFile' in CONFIG and CONFIG['InputFile'] == '-':
+        CONFIG['InputFile'] = None
+
+    if not 'InputFormat' in CONFIG:
+        log(logging.ERROR, 'Input format not provided')
+        return False
+
+    valid_input_formats = ('json', 'csv')
+    if CONFIG['InputFormat'] not in valid_input_formats:
+        log(logging.ERROR,
+            'Unknown input format "{}": must be one of {}'.format(
+                CONFIG['InputFormat'], ", ".join(valid_input_formats)
+            )
+        )
+        return False
+
+    if 'Transformations' in CONFIG:
+        for tr in CONFIG['Transformations']:
+            try:
+                test_transformation(tr)
+            except P2ESError as e:
+                log(logging.ERROR,
+                    'Invalid transformation: {}'.format(str(e)))
+                return False
+
+    return True
+
+# Setup logging to stdout (is possible), file or stderr.
+# Returns: True | False.
+# Raises exceptions: no.
+def setup_logging(baselogfile=None):
+    if baselogfile:
+        logfilepath = expand_macros(baselogfile)
+    else:
+        logfilepath = None
+
+    logger = logging.getLogger(APP_NAME)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    logger.setLevel(logging.INFO)
+
+    logger.handlers = []
+
+    if logfilepath:
+        # log to stdout too
+        if sys.stdout.isatty():
+            try:
+                hdlr = logging.StreamHandler(sys.stdout)
+                hdlr.setFormatter(formatter)
+                logger.addHandler(hdlr)
+            except:
+                pass
+        try:
+            hdlr = logging.handlers.RotatingFileHandler(logfilepath,
+                                                        maxBytes=1000000,
+                                                        backupCount=3)
+            hdlr.setFormatter(formatter)
+            logger.addHandler(hdlr)
+        except:
+            log(logging.ERROR,
+                "Can't setup logging to file {}. "
+                "Ensure it has write permissions for the current user.".format(
+                    logfilepath
+                )
+            )
+            return False
+    else:
+        try:
+            hdlr = logging.StreamHandler(sys.stderr)
+            hdlr.setFormatter(formatter)
+            logger.addHandler(hdlr)
+        except:
+	    sys.stderr.write("Can't setup logging to stderr.")
+            return False
+
+    return True
+
+def log(lev, msg, exc_info=False):
+    logger = logging.getLogger(APP_NAME)
+    logger.log(lev, msg, exc_info=exc_info)
+
+def main():
+    global CONF_DIR
+
+    parser = argparse.ArgumentParser(
+        description="pmacct-to-elasticsearch {}: a tool to read "
+                    "pmacct's output and to store it into "
+                    "ElasticSearch.".format(CURRENT_RELEASE),
+        epilog="Copyright (c) 2014-{} - Pier Carlo Chiodi - "
+               "https://pierky.com".format(2017)
+    )
+    parser.add_argument(
+        "pluginname",
+        help="Plugin name.")
+    parser.add_argument(
+        "-p", "--print",
+        help="Only print output to stdout "
+             "(does not send data to ElasticSearch).",
+        action="store_true",
+        dest="print_only")
+    parser.add_argument(
+        "-t", "--test",
+        help="Only tests configuration "
+             "(does not send data to ElasticSearch).",
+        action="store_true",
+        dest="test_only")
+    group = parser.add_argument_group(
+        title="Configuration options",
+        description="These arguments override settings "
+                    "provided in the plugin configuration "
+                    "file. See CONFIGURATION.md for more details."
+    )
+    group.add_argument(
+        "--config-dir",
+        help="Directory where configuration files and "
+             "ElasticSearch templates are stored.",
+        default=CONF_DIR,
+        metavar="DIR",
+        dest="config_dir")
+    group.add_argument(
+        "--log-file",
+        help="Path to the log file used to log messages. "
+             "Overrides 'LogFile' configuration setting.",
+        metavar="FILE",
+        dest="log_file")
+    group.add_argument(
+        "--es-url",
+        help="ElasticSearch URL. "
+             "Overrides 'ES_URL' configuration setting.",
+        metavar="URL",
+        dest="es_url")
+    group.add_argument(
+        "--es-indexname",
+        help="ElasticSearch index name. "
+             "Overrides 'ES_IndexName' configuration setting.",
+        metavar="NAME",
+        dest="es_indexname")
+    group.add_argument(
+        "--es-type",
+        help="ElasticSearch documents _type. "
+             "Overrides 'ES_Type' configuration setting.",
+        metavar="TYPE",
+        dest="es_type")
+    group.add_argument(
+        "--es-authtype",
+        help="ElasticSearch authentication method. "
+             "Overrides 'ES_AuthType' configuration setting.",
+        choices=['none', 'basic', 'digest'],
+        dest="es_authtype")
+    group.add_argument(
+        "--es-username",
+        help="ElasticSearch username. "
+             "Overrides 'ES_UserName' configuration setting.",
+        metavar="USER",
+        dest="es_username")
+    group.add_argument(
+        "--es-password",
+        help="ElasticSearch password. "
+             "Overrides 'ES_Password' configuration setting.",
+        metavar="PASS",
+        dest="es_password")
+    group.add_argument(
+        "--es-index-template-file-name",
+        help="Name of the file containing the template to be used "
+             "when creating a new index. The file must be in the "
+             "CONF_DIR directory. "
+             "Overrides 'ES_IndexTemplateFileName' configuration setting.",
+        metavar="FILE",
+        dest="es_templatefilename")
+    group.add_argument(
+        "--es-flushsize",
+        help="How often (in terms of documents) to flush data to "
+             "ElasticSearch BULK API. "
+             "Overrides 'ES_FlushSize' configuration setting.",
+        type=int,
+        metavar="NUM",
+        dest="es_flushsize")
+    group.add_argument(
+        "--reader-threads",
+        help="How many threads should be used to process pmacct output. "
+             "Overrides 'ReaderThreads' configuration setting.",
+        type=int,
+        metavar="NUM",
+        dest="readerthreads")
+    group.add_argument(
+        "--input-file",
+        help="Path to the file produced by pmacct. To read from stdin, "
+             "use '-'. "
+             "Overrides 'InputFile' configuration setting.",
+        metavar="FILE",
+        dest="input_file")
+    group.add_argument(
+        "--input-format",
+        help="Format of the file produced by pmacct. "
+             "Overrides 'InputFile' configuration setting.",
+        choices=["json", "csv"],
+        dest="input_format")
+    group = parser.add_argument_group(
+        title="Transformations testing"
+    )
+    group.add_argument(
+        "--test-condition",
+        help="Test conditions given in FILE against --test-condition-data.",
+        metavar="FILE",
+        dest="test_condition")
+    group.add_argument(
+        "--test-condition-data",
+        help="Data used to test condition given in --test-condition.",
+        metavar="FILE",
+        dest="test_condition_data")
+
+    args = parser.parse_args()
+
+    if args.config_dir:
+        CONF_DIR = args.config_dir
+        CONFIG['CONF_DIR'] = args.config_dir
+
+    if not setup_logging():
+        return False
+
+    if args.test_condition and args.test_condition_data:
+        with open(args.test_condition, "r") as f:
+            c = json.load(f)
+        with open(args.test_condition_data, "r") as f:
+            d = json.load(f)
+        print(
+            "Tested condition evaluated to {}".format(
+                parse_conditions(c, d)
+            )
+        )
+        return True
+    else:
+        if args.test_condition and not args.test_condition_data or \
+            args.test_condition_data and not args.test_condition:
+            log(logging.ERROR, "--test-condition and --test-condition-data "
+                "must be used togheter.")
+            return False
+
+    CONFIG["PluginName"] = args.pluginname
+
+    # Loading configuration
+    new_cfg_file_name = "{}.conf".format(CONFIG["PluginName"])
+    try:
+        with open('{}/{}'.format(CONF_DIR, new_cfg_file_name), "r") as f:
+            new_cfg = json.load(f)
+    except:
+        log(logging.ERROR,
+            'Error loading configuration from {}/{}'.format(
+                CONF_DIR, new_cfg_file_name),
+            exc_info=True)
+        return False
+
+    CONFIG.update(new_cfg)
+
+    # Command line arguments have higher priority
+    for pair in [('log_file', 'LogFile'), ('es_url', 'ES_URL'),
+                 ('es_indexname', 'ES_IndexName'), ('es_type', 'ES_Type'),
+                 ('es_type', 'ES_Type'), ('es_authtype', 'ES_AuthType'),
+                 ('es_username', 'ES_UserName'), ('es_password', 'ES_Password'),
+                 ('es_templatefilename', 'ES_IndexTemplateFileName'),
+                 ('es_flushsize', 'ES_FlushSize'), ('readerthreads', 'ReaderThreads'),
+                 ('input_file', 'InputFile'), ('input_format', 'InputFormat')]:
+        assert pair[0] in vars(args)
+        if pair[0] in vars(args):
+            if vars(args)[pair[0]]:
+                CONFIG[pair[1]] = vars(args)[pair[0]]
+
+    if 'LogFile' in CONFIG:
+        if not setup_logging(CONFIG['LogFile']):
+            return False
+    else:
+        log(logging.ERROR, 'Missing LogFile')
+        return False
+
+    if not check_config():
+        return False
+
+    if args.test_only:
+        print('Configuration tested successfully')
+        return True
+    
+    if not CONFIG['InputFile']:
+        r, w, x = select.select([sys.stdin], [], [], 0)
+        if not r:
+            log(logging.ERROR, 'Error while reading input data from stdin')
+            return False
+    
+    # Timestamp for ES indexing (UTC)
+
+    ts = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    # Read pmacct's output and perform transformations
+
+    writer_queue = Queue()
+    errors_queue = Queue()
+
+    if args.print_only:
+        writer_thread_class = PrintOnlyWriterThread
+    else:
+        writer_thread_class = ESWriterThread
+
+    try:
+        writer = writer_thread_class("writer",
+                                     CONFIG,
+                                     errors_queue,
+                                     ts,
+                                     writer_queue,
+                                     CONFIG['ES_FlushSize'])
+        writer.daemon = True
+        writer.start()
+    except P2ESError as e:
+        log(logging.ERROR, str(e))
+        return False
+
+    try:
+        if CONFIG['InputFormat'] == 'json':
+            reader_class = JSONReader
+        elif CONFIG['InputFormat'] == 'csv':
+            reader_class = CSVReader
+
+        reader = reader_class(
+            CONFIG,
+            expand_macros(CONFIG['InputFile']) if CONFIG['InputFile'] else None,
+            errors_queue,
+            writer_queue
+        )
+    except P2ESError as e:
+        log(logging.ERROR, str(e))
+        return False
+
+    ret_code = True
+    try:
+        reader.process_input()
+    except Exception as e:
+        log(logging.ERROR,
+            "Error while processing input: {}".format(str(e)))
+        ret_code = False
+    finally:
+        reader.finalize()
+
+    writer.queue.put(None)
+    writer.join()
+
+    while True:
+        try:
+            err = errors_queue.get(block=False)
+            ret_code = False
+            log(logging.ERROR, err)
+        except Empty:
+            break
+
+    return ret_code
+
+sys.exit(0 if main() else 1)
