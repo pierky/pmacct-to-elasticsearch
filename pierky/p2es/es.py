@@ -19,7 +19,7 @@ def http(CONFIG, url, method="GET", data=None):
                 'Unexpected authentication type: {}'.format(CONFIG['ES_AuthType'])
             )
 
-    headers = {'Content-Type': 'application/x-ndjson'}
+    headers = {'Content-Type': 'application/json'}
 
     if method == "GET":
         return requests.get(url, auth=auth, headers=headers)
