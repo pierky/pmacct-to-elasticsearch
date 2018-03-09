@@ -1,0 +1,35 @@
+#!/bin/bash
+
+wait_for_es=30
+
+pip install requests
+
+docker pull docker.elastic.co/elasticsearch/${ES_IMAGE}
+docker run \
+	-p 9200:9200 \
+	-p 9300:9300 \
+	-e "discovery.type=single-node" \
+	-e "ES_JAVA_OPTS=-Xms256m -Xmx256m" \
+	docker.elastic.co/elasticsearch/${ES_IMAGE} &
+
+echo ""
+echo "Going to sleep for ${wait_for_es} seconds, waiting for ES..."
+sleep ${wait_for_es}
+
+echo ""
+echo "Running pmacct-to-elasticsearch..."
+
+export PYTHONPATH="`pwd`"
+./scripts/pmacct-to-elasticsearch \
+	--log-file - \
+	--es-url http://localhost:9200 \
+	--es-indexname test \
+	--es-type test_type \
+	--es-index-template-file-name new-index-template.json \
+	--input-file tests/data.csv \
+	--input-format csv \
+	--config-dir `pwd`/tests \
+	plugin
+
+sleep 5
+curl -s -H "Content-Type: application/json" -XGET 'http://localhost:9200/test/_search?size=100&q=*:*' | grep test_ok
