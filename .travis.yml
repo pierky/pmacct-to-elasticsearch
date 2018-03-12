@@ -9,7 +9,7 @@ services:
 
 env:
   - ES_IMAGE="elasticsearch-oss:6.2.2"
-  - ES_IMAGE="elasticsearch:5.6.8"
+  - ES_IMAGE="elasticsearch:5.6.8" ES_USER="elastic" ES_PASS="changeme"
 
 script:
   - tests/run_tests

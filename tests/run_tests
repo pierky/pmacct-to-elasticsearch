@@ -20,9 +20,16 @@ echo ""
 echo "Running pmacct-to-elasticsearch..."
 
 export PYTHONPATH="`pwd`"
+
+ARG_AUTH=""
+if [ -n "${ES_USER}" ]; then
+	ARG_AUTH="--es-authtype basic --es-username ${ES_USER} --es-password ${ES_PASS}"
+fi
+
 ./scripts/pmacct-to-elasticsearch \
 	--log-file - \
 	--es-url http://localhost:9200 \
+	${ARG_AUTH} \
 	--es-indexname test \
 	--es-type test_type \
 	--es-index-template-file-name new-index-template.json \
@@ -32,4 +39,8 @@ export PYTHONPATH="`pwd`"
 	plugin
 
 sleep 5
-curl -s -H "Content-Type: application/json" -XGET 'http://localhost:9200/test/_search?size=100&q=*:*' | grep test_ok
+ARG_AUTH=""
+if [ -n "${ES_USER}" ]; then
+	ARG_AUTH="--user ${ES_USER}:${ES_PASS}"
+fi
+curl -s ${ARG_AUTH} -H "Content-Type: application/json" -XGET 'http://localhost:9200/test/_search?size=100&q=*:*' | grep test_ok
