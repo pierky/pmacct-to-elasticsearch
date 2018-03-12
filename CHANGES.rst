@@ -1,6 +1,13 @@
 Changelog
 =========
 
+0.3.1
+-----
+
+- Fix: ES 6.2 compatibility.
+
+  `Issue #9 <https://github.com/pierky/pmacct-to-elasticsearch/issues/9>`.
+
 0.3.0
 -----
 
