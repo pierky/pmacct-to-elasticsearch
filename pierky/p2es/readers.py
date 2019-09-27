@@ -7,8 +7,8 @@ try:
 except:
     from Queue import Queue, Empty
 
-from transformations import *
-from threads import P2ESThread
+from pierky.p2es.transformations import *
+from pierky.p2es.threads import P2ESThread
 import sys
 
 class BaseReaderThread(P2ESThread):
