@@ -223,7 +223,7 @@ def setup_logging(baselogfile=None):
             hdlr.setFormatter(formatter)
             logger.addHandler(hdlr)
         except:
-	    sys.stderr.write("Can't setup logging to stderr.")
+            sys.stderr.write("Can't setup logging to stderr.")
             return False
 
     return True
