@@ -6,7 +6,7 @@
 import json
 
 
-from errors import P2ESError
+from pierky.p2es.errors import P2ESError
 
 # Parse list of conditions c against data d.
 # Returns: True | False (conditions matched / did not match).
@@ -39,7 +39,7 @@ def parse_conditions_list(c, d):
                 'Logical groups must begin with "AND" or "OR" '
                 '("{}" found)'.format(c[0])
             )
-    else:	
+    else:
         # default to "AND" if not specified
 
         for sub_c in c:
@@ -61,10 +61,10 @@ def parse_conditions_dict(c, d, opfield):
 
             if not op in ('=', '>', '>=', '<', '<=', '!=', 'in', 'notin'):
                 raise P2ESError('Unexpected operator: "{}"'.format(op))
-	else:
+        else:
             if n is None:
                 n = k
-		v = c[k]
+                v = c[k]
             else:
                 raise P2ESError('Only one name/value pair allowed')
 
@@ -119,7 +119,7 @@ def test_transformation(tr):
         tr_det = 'Transformations matrix ({})'.format(transformation)
     except:
         tr_det = 'Transformations matrix'
-	
+
     if 'Conditions' not in tr:
         raise P2ESError('{}, "Conditions" is missing'.format(tr_det))
 
@@ -130,7 +130,7 @@ def test_transformation(tr):
         parse_conditions(tr['Conditions'], {})
     except P2ESError as e:
         raise P2ESError('{}, invalid "Conditions": {}'.format(tr_det, str(e)))
-	
+
     for action in tr['Actions']:
         if 'Type' not in action:
             raise P2ESError('{}, "Type" is missing'.format(tr_det))
@@ -172,7 +172,7 @@ def test_transformation(tr):
                     with open(action['LookupTableFile'], "r") as f:
                         action['LookupTable'] = json.load(f)
                 except Exception as e:
-		    raise P2ESError(
+                    raise P2ESError(
                         '{}, error loading lookup table from {}: {}'.format(
                             tr_det, action['LookupTableFile'], str(e)
                         )
@@ -191,14 +191,14 @@ if __name__ == '__main__':
     ]
     #C = [ "Invalid" ]
     
-    Data = [	
-    	{ "Name": "Bob", "Age": 15 },
-    	{ "Name": "Bob", "Age": 16 },
-    	{ "Name": "Ken", "Age": 14 },
-    	{ "Name": "Tom", "Age": 14 },
-    	{ "Name": "Tom", "Age": 20 },
-    	{ "Name": "Lisa", "Age": 15 },
-    	{ "Name": "Lisa", "Age": 22 }
+    Data = [
+        { "Name": "Bob", "Age": 15 },
+        { "Name": "Bob", "Age": 16 },
+        { "Name": "Ken", "Age": 14 },
+        { "Name": "Tom", "Age": 14 },
+        { "Name": "Tom", "Age": 20 },
+        { "Name": "Lisa", "Age": 15 },
+        { "Name": "Lisa", "Age": 22 }
     ]
     
     print(C)

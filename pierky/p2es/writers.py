@@ -8,9 +8,9 @@ try:
 except:
     from Queue import Empty
 
-from errors import P2ESError
-from es import *
-from threads import P2ESThread
+from pierky.p2es.errors import P2ESError
+from pierky.p2es.es import *
+from pierky.p2es.threads import P2ESThread
 
 class BaseWriterThread(P2ESThread):
 
@@ -34,9 +34,9 @@ class BaseWriterThread(P2ESThread):
 
     def flush(self):
         if self.es_docs:
-	    try:
-	        output = self._format_output()
-	        self._flush(output)
+            try:
+                output = self._format_output()
+                self._flush(output)
             finally:
                 self.es_docs = []
 
@@ -48,7 +48,7 @@ class BaseWriterThread(P2ESThread):
 
                 if dic is None:
                     #self.flush()
-		    break
+                    break
                     #return
 
                 dic['@timestamp'] = self.ts

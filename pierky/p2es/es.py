@@ -5,7 +5,7 @@ import json
 import requests
 from requests.auth import HTTPDigestAuth, HTTPBasicAuth
 
-from errors import P2ESError
+from pierky.p2es.errors import P2ESError
 
 def http(CONFIG, url, method="GET", data=None):
     auth = None
