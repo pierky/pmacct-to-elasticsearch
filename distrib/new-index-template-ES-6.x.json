@@ -1,0 +1,26 @@
+{
+  "mappings": {
+    "_default_": {
+      "_all" : { "enabled" : false },
+
+      "_source" : { "enabled" : true },
+
+      "dynamic_templates": [
+        {
+          "string_template" : {
+            "match" : "*",
+            "match_mapping_type" : "string",
+            "mapping": { "type": "keyword", "index": true }
+          }
+        }
+      ],
+
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "bytes": { "type": "long" },
+        "packets": { "type": "long" },
+        "flows": { "type": "long" }
+      }
+    }
+  }
+}
