@@ -1,6 +1,13 @@
 Changelog
 =========
 
+0.3.2
+-----
+
+- Code linting and fixing import and pip3 errors.
+
+  Thanks to `@palisadoes (Peter Harrison) <https://github.com/palisadoes>` for these fixes.
+
 0.3.1
 -----
 
