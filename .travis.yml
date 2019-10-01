@@ -8,6 +8,7 @@ services:
   - docker
 
 env:
+  - ES_IMAGE="elasticsearch-oss:7.3.2"
   - ES_IMAGE="elasticsearch-oss:6.2.2"
   - ES_IMAGE="elasticsearch:5.6.8" ES_USER="elastic" ES_PASS="changeme"
 
