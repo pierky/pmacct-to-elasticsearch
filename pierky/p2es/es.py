@@ -37,11 +37,17 @@ def http(CONFIG, url, method="GET", data=None):
 def send_to_es(CONFIG, index_name, data):
     # HTTP bulk insert toward ES
 
-    url = '{}/{}/{}/_bulk'.format(
-        CONFIG['ES_URL'],
-        index_name,
-        CONFIG['ES_Type']
-    )
+    if CONFIG['ES_Type']:
+        url = '{}/{}/{}/_bulk'.format(
+            CONFIG['ES_URL'],
+            index_name,
+            CONFIG['ES_Type']
+        )
+    else:
+        url = '{}/{}/_bulk'.format(
+            CONFIG['ES_URL'],
+            index_name
+        )
 
     try:
         http_res = http(CONFIG, url, method="POST", data=data)

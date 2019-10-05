@@ -31,8 +31,8 @@ fi
 	--es-url http://localhost:9200 \
 	${ARG_AUTH} \
 	--es-indexname test \
-	--es-type test_type \
-	--es-index-template-file-name new-index-template.json \
+	--es-type "${ES_TYPE}" \
+	--es-index-template-file-name ${ES_TEMPLATE} \
 	--input-file tests/data.csv \
 	--input-format csv \
 	--config-dir `pwd`/tests \

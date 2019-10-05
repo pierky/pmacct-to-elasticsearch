@@ -89,7 +89,10 @@ These files are in JSON format and contain the following keys:
 
    Default: no default provided
 
-- **ES_Type** [required]: ElasticSearch document type (_type field) used to store
+- **ES_Type** [optional]: Used only for versions of ElasticSearch prior to 7.
+   For versions of ES >= 7, do not set it.
+
+   ElasticSearch document type (_type field) used to store
    pmacct-to-elasticsearch output. Similar to tables in relational DB.
 
    From the official reference guide
@@ -237,12 +240,12 @@ argument:
 
      # cd /etc/p2es/triggers/
      # ln -s default_trigger my_print
-     
+
      /etc/p2es/triggers/default_trigger:
-          
+
           #!/bin/sh
           PLUGIN_NAME=`basename $0`
           /usr/local/bin/pmacct-to-elasticsearch $PLUGIN_NAME &
 
-Otherwise, remember to use the full path of pmacct-to-elasticsearch in order 
+Otherwise, remember to use the full path of pmacct-to-elasticsearch in order
 to avoid problems with a stripped version of the *PATH* environment variable.

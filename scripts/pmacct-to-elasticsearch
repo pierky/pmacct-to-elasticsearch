@@ -21,7 +21,7 @@ import sys
 from pierky.p2es.errors import P2ESError
 from pierky.p2es.readers import JSONReader, CSVReader
 from pierky.p2es.transformations import test_transformation
-from pierky.p2es.version import __version__ 
+from pierky.p2es.version import __version__
 from pierky.p2es.writers import PrintOnlyWriterThread, ESWriterThread
 
 APP_NAME = 'pmacct-to-elasticsearch'
@@ -40,7 +40,7 @@ DEF_CONFIG = {
     'ES_AuthType': 'none',
 
     'ES_FlushSize': 5000,
-    
+
     'ReaderThreads': 2,
     'InputFormat': 'json',
 
@@ -55,13 +55,13 @@ CONFIG = DEF_CONFIG.copy()
 def expand_macros(s):
     if s is None:
         return None
-    
+
     out = deepcopy(s)
     out = out.replace('$PluginName', CONFIG.get('PluginName') or 'default')
     out = out.replace('$IndexName', datetime.datetime.now().strftime(
         CONFIG.get('ES_IndexName') or 'default'
     ))
-    out = out.replace('$Type', CONFIG.get('ES_Type') or 'default')
+    out = out.replace('$Type', CONFIG.get('ES_Type') or '')
     return out
 
 # Checks config and logs any errors.
@@ -70,10 +70,6 @@ def expand_macros(s):
 def check_config():
     if not CONFIG['ES_IndexName']:
         log(logging.ERROR, 'ElasticSearch index name not provided')
-        return False
-
-    if not CONFIG['ES_Type']:
-        log(logging.ERROR, 'ElasticSearch type not provided')
         return False
 
     if not CONFIG['ES_URL']:
@@ -407,7 +403,7 @@ def main():
 
     # Command line arguments have higher priority
     for pair in [('log_file', 'LogFile'), ('es_url', 'ES_URL'),
-                 ('es_indexname', 'ES_IndexName'), ('es_type', 'ES_Type'),
+                 ('es_indexname', 'ES_IndexName'),
                  ('es_type', 'ES_Type'), ('es_authtype', 'ES_AuthType'),
                  ('es_username', 'ES_UserName'), ('es_password', 'ES_Password'),
                  ('es_templatefilename', 'ES_IndexTemplateFileName'),
@@ -431,13 +427,13 @@ def main():
     if args.test_only:
         print('Configuration tested successfully')
         return True
-    
+
     if not CONFIG['InputFile']:
         r, w, x = select.select([sys.stdin], [], [], 0)
         if not r:
             log(logging.ERROR, 'Error while reading input data from stdin')
             return False
-    
+
     # Timestamp for ES indexing (UTC)
 
     ts = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
