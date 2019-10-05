@@ -1,6 +1,13 @@
 Changelog
 =========
 
+0.3.3
+-----
+
+- Fix: ES 7 compatibility.
+
+  `Issue #14 <https://github.com/pierky/pmacct-to-elasticsearch/issues/14>`.
+
 0.3.2
 -----
 
