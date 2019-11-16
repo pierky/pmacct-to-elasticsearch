@@ -9,8 +9,8 @@ The former, "memory", needs data to be passed to pmacct-to-elasticsearch's
 stdin, while the latter, "print", needs a file to be written by pmacct
 daemons, where pmacct-to-elasticsearch is instructed to read data from.
 
-For "print" plugins, a crontab job is needed to run pmacct client and to
-redirect its output to pmacct-to-elasticsearch; for "memory" plugins the pmacct
+For "memory" plugins, a crontab job is needed to run pmacct client and to
+redirect its output to pmacct-to-elasticsearch; for "print" plugins the pmacct
 daemon can directly execute pmacct-to-elasticsearch. More details will follow
 within the rest of this document.
 
